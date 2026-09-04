@@ -45,75 +45,95 @@
       x-init="initApp()"
       x-cloak>
 
-    <!-- Barra Superior Móvil -->
-    <header class="sticky top-0 z-50 glass-panel border-b border-brand-border px-4 py-3">
-        <div class="max-w-6xl mx-auto flex items-center justify-between">
-            <!-- Brand & Status -->
-            <div class="flex items-center space-x-3">
-                <div class="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center">
-                    <span class="text-emerald-400 font-bold text-lg font-mono">⚡</span>
-                </div>
-                <div>
-                    <div class="flex items-center space-x-2">
-                        <h1 class="text-sm font-bold tracking-wider uppercase text-white font-mono">BotMK BingX</h1>
-                        
-                        <!-- BOTÓN CONMUTADOR DEMO / REAL (Clic para cambiar) -->
-                        <button @click="switchEnvironment()"
-                                :disabled="isLoading"
-                                class="text-[10px] px-2 py-0.5 rounded font-mono font-bold transition-all shadow-sm flex items-center space-x-1"
-                                :class="isDemo ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30' : 'bg-rose-500/20 text-rose-300 border border-rose-500/40 hover:bg-rose-500/30'"
-                                title="Haz clic para alternar entre cuenta Demo y Real">
-                            <span x-text="isDemo ? '🟡 DEMO (VST)' : '🔴 REAL (USDT)'"></span>
-                            <span class="text-[8px] opacity-70">⇄</span>
-                        </button>
+    <!-- Barra Superior Móvil y Desktop -->
+    <header class="sticky top-0 z-50 glass-panel border-b border-brand-border px-3 sm:px-4 py-2 sm:py-3">
+        <div class="max-w-6xl mx-auto flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-0">
+            <!-- Fila Superior / Izquierda: Brand & Estado -->
+            <div class="flex items-center justify-between sm:justify-start sm:space-x-3">
+                <div class="flex items-center space-x-2.5">
+                    <div class="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center shrink-0">
+                        <span class="text-emerald-400 font-bold text-base font-mono">⚡</span>
                     </div>
-                    <div class="flex items-center space-x-2 mt-0.5">
-                        <div class="flex items-center space-x-1.5">
-                            <span class="relative flex h-2 w-2">
-                                <span class="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75"
-                                      :class="isBotActive ? 'bg-emerald-400' : 'bg-red-400'"></span>
-                                <span class="relative inline-flex rounded-full h-2 w-2"
-                                      :class="isBotActive ? 'bg-emerald-500' : 'bg-red-500'"></span>
-                            </span>
-                            <span class="text-[11px] text-slate-400 font-medium"
-                                  x-text="circuitBreakerTriggered ? 'CIRCUIT BREAKER' : (isBotActive ? 'ACTIVO' : 'EN PAUSA')">
-                            </span>
+                    <div>
+                        <div class="flex items-center space-x-1.5 flex-wrap">
+                            <h1 class="text-xs sm:text-sm font-bold tracking-wider uppercase text-white font-mono">BotMK BingX</h1>
+                            
+                            <!-- BOTÓN CONMUTADOR DEMO / REAL (Clic para cambiar) -->
+                            <button @click="switchEnvironment()"
+                                    :disabled="isLoading"
+                                    class="text-[9px] sm:text-[10px] px-1.5 py-0.5 rounded font-mono font-bold transition-all shadow-sm flex items-center space-x-1"
+                                    :class="isDemo ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30' : 'bg-rose-500/20 text-rose-300 border border-rose-500/40 hover:bg-rose-500/30'"
+                                    title="Haz clic para alternar entre cuenta Demo y Real">
+                                <span x-text="isDemo ? '🟡 DEMO' : '🔴 REAL'"></span>
+                                <span class="text-[8px] opacity-70">⇄</span>
+                            </button>
                         </div>
-                        <span class="text-slate-600 text-[10px]">•</span>
-                        <span class="text-[10px] text-sky-400 font-mono">MTF: 5m + 15m</span>
+                        <div class="flex items-center space-x-2 mt-0.5">
+                            <div class="flex items-center space-x-1">
+                                <span class="relative flex h-2 w-2">
+                                    <span class="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75"
+                                          :class="isBotActive ? 'bg-emerald-400' : 'bg-red-400'"></span>
+                                    <span class="relative inline-flex rounded-full h-2 w-2"
+                                          :class="isBotActive ? 'bg-emerald-500' : 'bg-red-500'"></span>
+                                </span>
+                                <span class="text-[10px] sm:text-[11px] text-slate-400 font-medium"
+                                      x-text="circuitBreakerTriggered ? 'CIRCUIT BREAKER' : (isBotActive ? 'ACTIVO' : 'EN PAUSA')">
+                                </span>
+                            </div>
+                            <span class="text-slate-600 text-[10px]">•</span>
+                            <span class="text-[9px] sm:text-[10px] text-sky-400 font-mono">MTF: 5m + 15m</span>
+                        </div>
                     </div>
+                </div>
+
+                <!-- En móviles, el switch principal ON/OFF va en la fila superior derecha para máximo confort -->
+                <div class="sm:hidden">
+                    <button @click="toggleBot()"
+                            :disabled="isLoading"
+                            class="relative inline-flex h-7 w-12 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                            :class="isBotActive ? 'bg-emerald-600' : 'bg-slate-700'">
+                        <span class="sr-only">Encender o apagar</span>
+                        <span class="inline-block h-5 w-5 transform rounded-full bg-white transition-transform shadow-md flex items-center justify-center text-[9px] font-bold font-mono"
+                              :class="isBotActive ? 'translate-x-6 text-emerald-600' : 'translate-x-1 text-slate-600'"
+                              x-text="isBotActive ? 'ON' : 'OFF'">
+                        </span>
+                    </button>
                 </div>
             </div>
 
-            <!-- Switches Principales y Ajustes -->
-            <div class="flex items-center space-x-2">
-                <!-- Botón Configuración Integral -->
-                <button @click="openSettingsModal()"
-                        class="text-[10px] font-mono px-2 py-1.5 rounded border border-slate-700 bg-slate-800/90 hover:bg-slate-700 text-slate-200 transition-all flex items-center space-x-1 shadow-sm"
-                        title="Abrir Panel de Configuración Integral">
-                    <span>⚙️</span>
-                    <span class="hidden sm:inline font-bold">Ajustes</span>
-                </button>
+            <!-- Fila 2 en móviles / Derecha en Desktop: Switches y Ajustes -->
+            <div class="flex items-center justify-between sm:justify-end space-x-2 pt-1.5 sm:pt-0 border-t border-slate-800/60 sm:border-0">
+                <div class="flex items-center space-x-2">
+                    <!-- Botón Configuración Integral -->
+                    <button @click="openSettingsModal()"
+                            class="text-[10px] font-mono px-2.5 py-1 rounded border border-slate-700 bg-slate-800/90 hover:bg-slate-700 text-slate-200 transition-all flex items-center space-x-1.5 shadow-sm"
+                            title="Abrir Panel de Configuración Integral">
+                        <span>⚙️</span>
+                        <span class="font-bold">Ajustes</span>
+                    </button>
 
-                <!-- Switch Auto-Scanner MTF -->
-                <button @click="toggleScanner()"
-                        class="text-[10px] font-mono px-2 py-1 rounded border transition-colors flex items-center space-x-1"
-                        :class="scannerActive ? 'bg-sky-500/20 text-sky-300 border-sky-500/40 font-bold' : 'bg-slate-800/80 text-slate-500 border-slate-700'">
-                    <span class="w-1.5 h-1.5 rounded-full" :class="scannerActive ? 'bg-sky-400 animate-pulse' : 'bg-slate-600'"></span>
-                    <span x-text="scannerActive ? 'SCAN ON' : 'SCAN OFF'"></span>
-                </button>
+                    <!-- Switch Auto-Scanner MTF -->
+                    <button @click="toggleScanner()"
+                            class="text-[10px] font-mono px-2.5 py-1 rounded border transition-colors flex items-center space-x-1.5"
+                            :class="scannerActive ? 'bg-sky-500/20 text-sky-300 border-sky-500/40 font-bold' : 'bg-slate-800/80 text-slate-500 border-slate-700'">
+                        <span class="w-1.5 h-1.5 rounded-full" :class="scannerActive ? 'bg-sky-400 animate-pulse' : 'bg-slate-600'"></span>
+                        <span x-text="scannerActive ? 'SCAN ON' : 'SCAN OFF'"></span>
+                    </button>
+                </div>
 
-                <!-- Switch Principal ON/OFF -->
-                <button @click="toggleBot()"
-                        :disabled="isLoading"
-                        class="relative inline-flex h-8 w-14 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                        :class="isBotActive ? 'bg-emerald-600' : 'bg-slate-700'">
-                    <span class="sr-only">Encender o apagar</span>
-                    <span class="inline-block h-6 w-6 transform rounded-full bg-white transition-transform shadow-md flex items-center justify-center text-[10px] font-bold font-mono"
-                          :class="isBotActive ? 'translate-x-7 text-emerald-600' : 'translate-x-1 text-slate-600'"
-                          x-text="isBotActive ? 'ON' : 'OFF'">
-                    </span>
-                </button>
+                <!-- Switch Principal ON/OFF en Desktop -->
+                <div class="hidden sm:block">
+                    <button @click="toggleBot()"
+                            :disabled="isLoading"
+                            class="relative inline-flex h-8 w-14 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                            :class="isBotActive ? 'bg-emerald-600' : 'bg-slate-700'">
+                        <span class="sr-only">Encender o apagar</span>
+                        <span class="inline-block h-6 w-6 transform rounded-full bg-white transition-transform shadow-md flex items-center justify-center text-[10px] font-bold font-mono"
+                              :class="isBotActive ? 'translate-x-7 text-emerald-600' : 'translate-x-1 text-slate-600'"
+                              x-text="isBotActive ? 'ON' : 'OFF'">
+                        </span>
+                    </button>
+                </div>
             </div>
         </div>
     </header>
