@@ -19,6 +19,7 @@ class BingXFuturesClient:
         self.api_key = config.BINGX_API_KEY
         self.secret_key = config.BINGX_SECRET_KEY
         self.is_demo = config.IS_DEMO
+        self.break_even_protected = set()
         self.exchange = self._init_exchange()
 
     def _init_exchange(self) -> ccxt.bingx:
@@ -238,6 +239,8 @@ class BingXFuturesClient:
                     if margin == 0.0 and leverage > 0:
                         margin = notional / leverage if notional > 0 else (contracts * entry_price) / leverage
 
+                    is_be_active = symbol in self.break_even_protected
+
                     positions_out.append({
                         "symbol": symbol,
                         "side": side,
@@ -248,8 +251,14 @@ class BingXFuturesClient:
                         "unrealized_pnl": round(unrealized_pnl, 2),
                         "initial_margin": round(margin, 2),
                         "margin_usdt": round(margin, 2),
-                        "notional_usdt": round(notional, 2)
+                        "notional_usdt": round(notional, 2),
+                        "is_break_even_protected": is_be_active
                     })
+
+            # Limpiar del set de break-even aquellos activos que ya se cerraron
+            current_active_symbols = {p["symbol"] for p in positions_out}
+            self.break_even_protected = {s for s in self.break_even_protected if s in current_active_symbols}
+
         except Exception as err:
             add_system_log("ERROR", f"Error al consultar posiciones: {err}")
 
@@ -262,15 +271,34 @@ class BingXFuturesClient:
         leverage: int,
         balance_pct: float = config.POSITION_BALANCE_PCT
     ) -> float:
-        """Calcula el tamaño exacto usando el 10% del balance disponible."""
+        """
+        Calcula el tamaño exacto del lote.
+        Soporta dos modalidades:
+        1. 'percent_total': % del balance total (equitativo, no decrece con cada trade).
+        2. 'fixed_usdt': monto fijo exacto en USDT de margen por operación.
+        """
         self.ensure_markets()
         balance_info = self.get_balance()
-        free_balance = balance_info["free"]
+        free_balance = float(balance_info.get("free", 0.0))
+        total_balance = float(balance_info.get("total", free_balance))
 
         if free_balance <= 0:
             raise ValueError("Balance libre insuficiente para operar.")
 
-        margin_to_use = free_balance * (balance_pct / 100.0)
+        sizing_mode = getattr(config, "POSITION_SIZING_MODE", "percent_total")
+        if sizing_mode == "fixed_usdt":
+            target_margin = float(getattr(config, "FIXED_POSITION_MARGIN_USDT", 10.0))
+            mode_desc = f"Monto Fijo ${target_margin:.2f} USDT"
+        else:
+            # Porcentaje del balance total para garantizar tamaño constante en todas las órdenes
+            target_margin = total_balance * (balance_pct / 100.0)
+            mode_desc = f"{balance_pct:.1f}% Balance Total (${target_margin:.2f} USDT)"
+
+        # Ajuste por seguridad: no usar más del saldo libre disponible en la cuenta
+        margin_to_use = min(target_margin, free_balance)
+        if margin_to_use <= 0:
+            raise ValueError("Saldo libre insuficiente para cubrir el margen requerido.")
+
         notional_value = margin_to_use * leverage
         raw_amount = notional_value / current_price
 
@@ -287,9 +315,93 @@ class BingXFuturesClient:
 
         add_system_log(
             "INFO",
-            f"Dimensionamiento (10% Margen): ${margin_to_use:.2f} con {leverage}x -> Lote={amount} {exchange_symbol}"
+            f"Dimensionamiento ({mode_desc}): Margen=${margin_to_use:.2f} con {leverage}x -> Lote={amount} {exchange_symbol}"
         )
         return amount
+
+    def check_and_apply_break_even(self, positions: List[Dict[str, Any]]) -> None:
+        """
+        NIVEL 4: Blindaje a Break-Even Automático (Riesgo Cero).
+        Monitorea las posiciones abiertas y, en cuanto alcanzan el umbral de ganancia (+1.0%),
+        mueve el Stop Loss al precio de entrada más comisiones (+0.08%).
+        """
+        if not getattr(config, "BREAK_EVEN_ENABLED", True) or not positions:
+            return
+
+        trigger_pct = float(getattr(config, "BREAK_EVEN_TRIGGER_PCT", 1.0))
+        offset_pct = float(getattr(config, "BREAK_EVEN_OFFSET_PCT", 0.08))
+
+        for pos in positions:
+            symbol = pos.get("symbol")
+            if not symbol or symbol in self.break_even_protected:
+                continue
+
+            entry_price = float(pos.get("entry_price") or 0.0)
+            current_price = float(pos.get("current_price") or 0.0)
+            side = str(pos.get("side", "")).upper()
+            contracts = float(pos.get("amount") or 0.0)
+
+            if entry_price <= 0 or current_price <= 0 or contracts <= 0:
+                continue
+
+            is_long = side in ["BUY", "LONG"]
+            if is_long:
+                gain_pct = ((current_price - entry_price) / entry_price) * 100.0
+                be_price = entry_price * (1.0 + (offset_pct / 100.0))
+                pos_side = "LONG"
+                close_side = "sell"
+            else:
+                gain_pct = ((entry_price - current_price) / entry_price) * 100.0
+                be_price = entry_price * (1.0 - (offset_pct / 100.0))
+                pos_side = "SHORT"
+                close_side = "buy"
+
+            # Evaluar si la posición alcanzó el umbral para activar el Break-Even
+            if gain_pct >= trigger_pct:
+                try:
+                    self.ensure_markets()
+                    formatted_be_price = float(self.exchange.price_to_precision(symbol, be_price))
+
+                    # 1. Cancelar Stop Loss condicional previo en BingX si existe
+                    try:
+                        open_orders = self.exchange.fetch_open_orders(symbol)
+                        for order in open_orders:
+                            o_type = str(order.get("type", "")).upper()
+                            if "STOP" in o_type:
+                                self.exchange.cancel_order(order["id"], symbol)
+                    except Exception as cancel_err:
+                        add_system_log("DEBUG", f"Aviso cancelando SL previo para BE en {symbol}: {cancel_err}")
+
+                    # 2. Colocar nueva orden de Stop Loss en precio de Break-Even blindado
+                    self.exchange.create_order(
+                        symbol=symbol,
+                        type="STOP_MARKET",
+                        side=close_side,
+                        amount=contracts,
+                        params={"stopPrice": formatted_be_price, "positionSide": pos_side}
+                    )
+
+                    self.break_even_protected.add(symbol)
+                    msg = (
+                        f"🛡️ BREAK-EVEN ACTIVADO en {symbol} ({pos_side}): "
+                        f"Ganancia alcanzó +{gain_pct:.2f}%. Stop Loss blindado a ${formatted_be_price} (Riesgo Cero)."
+                    )
+                    add_system_log("INFO", msg)
+
+                    # 3. Notificación a Telegram
+                    from notifications import notifier
+                    tele_text = (
+                        f"🛡️ *PROTECCIÓN BREAK-EVEN ACTIVADA* [Riesgo Cero]\n\n"
+                        f"📌 Activo: *{symbol}* ({pos_side})\n"
+                        f"📈 Ganancia alcanzada: *+{gain_pct:.2f}%*\n"
+                        f"🎯 Entrada: ${entry_price}\n"
+                        f"🛡️ Nuevo SL Blindado: *${formatted_be_price}*\n\n"
+                        f"✨ _La operación ahora está protegida contra pérdidas._"
+                    )
+                    notifier.send_telegram(tele_text)
+
+                except Exception as be_err:
+                    add_system_log("ERROR", f"Fallo al aplicar Break-Even en {symbol}: {be_err}")
 
     def open_bracket_position(
         self,

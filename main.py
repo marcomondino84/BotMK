@@ -65,6 +65,11 @@ async def background_streamer():
             if ws_manager.active_connections:
                 balance = bingx.get_balance()
                 positions = bingx.get_open_positions()
+                
+                # Nivel 4: Evaluar y aplicar blindaje Break-Even si procede
+                if positions:
+                    await asyncio.to_thread(bingx.check_and_apply_break_even, positions)
+
                 stats = get_performance_stats()
                 state = get_bot_state()
 
@@ -143,7 +148,12 @@ class ConfigPayload(BaseModel):
     bingx_api_key: Optional[str] = None
     bingx_secret_key: Optional[str] = None
     is_demo: Optional[bool] = None
+    position_sizing_mode: Optional[str] = None
     position_balance_pct: Optional[float] = None
+    fixed_position_margin_usdt: Optional[float] = None
+    break_even_enabled: Optional[bool] = None
+    break_even_trigger_pct: Optional[float] = None
+    break_even_offset_pct: Optional[float] = None
     default_risk_ratio: Optional[float] = None
     default_sl_pct: Optional[float] = None
     max_simultaneous_positions: Optional[int] = None
@@ -387,7 +397,12 @@ def get_full_config():
         "bingx_api_key": config.BINGX_API_KEY,
         "bingx_secret_key": config.BINGX_SECRET_KEY,
         "is_demo": config.IS_DEMO,
+        "position_sizing_mode": getattr(config, "POSITION_SIZING_MODE", "percent_total"),
         "position_balance_pct": config.POSITION_BALANCE_PCT,
+        "fixed_position_margin_usdt": getattr(config, "FIXED_POSITION_MARGIN_USDT", 10.0),
+        "break_even_enabled": getattr(config, "BREAK_EVEN_ENABLED", True),
+        "break_even_trigger_pct": getattr(config, "BREAK_EVEN_TRIGGER_PCT", 1.0),
+        "break_even_offset_pct": getattr(config, "BREAK_EVEN_OFFSET_PCT", 0.08),
         "default_risk_ratio": config.DEFAULT_RISK_RATIO,
         "default_sl_pct": config.DEFAULT_SL_PCT,
         "max_simultaneous_positions": config.MAX_SIMULTANEOUS_POSITIONS,
@@ -418,7 +433,12 @@ def update_full_config(payload: ConfigPayload):
         "BINGX_API_KEY": payload.bingx_api_key,
         "BINGX_SECRET_KEY": payload.bingx_secret_key,
         "IS_DEMO": payload.is_demo,
+        "POSITION_SIZING_MODE": payload.position_sizing_mode,
         "POSITION_BALANCE_PCT": payload.position_balance_pct,
+        "FIXED_POSITION_MARGIN_USDT": payload.fixed_position_margin_usdt,
+        "BREAK_EVEN_ENABLED": payload.break_even_enabled,
+        "BREAK_EVEN_TRIGGER_PCT": payload.break_even_trigger_pct,
+        "BREAK_EVEN_OFFSET_PCT": payload.break_even_offset_pct,
         "DEFAULT_RISK_RATIO": payload.default_risk_ratio,
         "DEFAULT_SL_PCT": payload.default_sl_pct,
         "MAX_SIMULTANEOUS_POSITIONS": payload.max_simultaneous_positions,

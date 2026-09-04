@@ -17,12 +17,40 @@ class Config(BaseSettings):
     # Modo de ejecución (Predeterminado: Real USDT)
     IS_DEMO: bool = Field(default=False, description="True para Testnet/Sandbox/VST, False para Cuenta Real")
 
-    # Gestión de posición y margen
+    # Gestión de posición y margen (Equitativo o Fijo)
+    POSITION_SIZING_MODE: str = Field(
+        default="percent_total",
+        description="'percent_total' (porcentaje del balance total) o 'fixed_usdt' (monto fijo en USDT por operación)"
+    )
     POSITION_BALANCE_PCT: float = Field(
         default=10.0,
         ge=1.0,
         le=100.0,
-        description="Porcentaje del balance libre a usar como margen en cada operación (10%)"
+        description="Porcentaje del balance total a usar como margen en cada operación (10%)"
+    )
+    FIXED_POSITION_MARGIN_USDT: float = Field(
+        default=10.0,
+        ge=1.0,
+        le=10000.0,
+        description="Monto fijo de margen en USDT por cada trade si se usa el modo 'fixed_usdt'"
+    )
+
+    # Nivel 4: Blindaje a Break-Even Automático (Riesgo Cero)
+    BREAK_EVEN_ENABLED: bool = Field(
+        default=True,
+        description="Activa mover el Stop Loss al precio de entrada para asegurar riesgo cero"
+    )
+    BREAK_EVEN_TRIGGER_PCT: float = Field(
+        default=1.0,
+        ge=0.2,
+        le=15.0,
+        description="Porcentaje de ganancia flotante para gatillar la protección Break-Even (+1.0%)"
+    )
+    BREAK_EVEN_OFFSET_PCT: float = Field(
+        default=0.08,
+        ge=0.0,
+        le=2.0,
+        description="Holgura sobre precio de entrada para pagar comisiones de apertura y cierre (+0.08%)"
     )
 
     # Reglas de salida obligatorias (SL / TP)
