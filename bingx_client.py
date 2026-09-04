@@ -230,6 +230,14 @@ class BingXFuturesClient:
                     unrealized_pnl = float(pos.get("unrealizedPnl") or 0.0)
                     leverage = int(pos.get("leverage") or 10)
 
+                    notional = float(pos.get("notional") or 0.0)
+                    if notional == 0.0 and entry_price > 0 and contracts > 0:
+                        notional = contracts * entry_price
+
+                    margin = float(pos.get("initialMargin") or pos.get("info", {}).get("initialMargin") or 0.0)
+                    if margin == 0.0 and leverage > 0:
+                        margin = notional / leverage if notional > 0 else (contracts * entry_price) / leverage
+
                     positions_out.append({
                         "symbol": symbol,
                         "side": side,
@@ -238,7 +246,9 @@ class BingXFuturesClient:
                         "entry_price": round(entry_price, 4),
                         "current_price": round(current_price, 4),
                         "unrealized_pnl": round(unrealized_pnl, 2),
-                        "initial_margin": round(pos.get("initialMargin", 0.0), 2)
+                        "initial_margin": round(margin, 2),
+                        "margin_usdt": round(margin, 2),
+                        "notional_usdt": round(notional, 2)
                     })
         except Exception as err:
             add_system_log("ERROR", f"Error al consultar posiciones: {err}")

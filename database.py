@@ -252,33 +252,38 @@ def record_trade_closed(
     return None
 
 
-def get_recent_trades(limit: int = 15) -> List[Dict[str, Any]]:
+def get_recent_trades(limit: int = 20) -> List[Dict[str, Any]]:
     """Obtiene los últimos trades cerrados o abiertos para la tabla del panel."""
     with SessionLocal() as session:
         trades = session.query(TradeRecord).order_by(desc(TradeRecord.id)).limit(limit).all()
-        return [
-            {
+        result = []
+        for t in trades:
+            notional = round(t.amount * t.entry_price, 2) if t.entry_price else 0.0
+            margin = round(notional / t.leverage, 2) if t.leverage and t.leverage > 0 else notional
+            result.append({
                 "id": t.id,
                 "order_id": t.order_id,
                 "symbol": t.symbol,
                 "side": t.side,
                 "amount": t.amount,
+                "leverage": t.leverage or 1,
                 "entry_price": t.entry_price,
                 "exit_price": t.exit_price,
                 "sl_price": t.sl_price,
                 "tp_price": t.tp_price,
+                "margin_usdt": margin,
+                "notional_usdt": notional,
                 "pnl_usd": round(t.pnl_usd, 2),
                 "pnl_pct": round(t.pnl_pct, 2),
                 "status": t.status,
                 "opened_at": t.opened_at.strftime("%Y-%m-%d %H:%M:%S") if t.opened_at else "",
                 "closed_at": t.closed_at.strftime("%Y-%m-%d %H:%M:%S") if t.closed_at else ""
-            }
-            for t in trades
-        ]
+            })
+        return result
 
 
 def get_performance_stats() -> Dict[str, Any]:
-    """Calcula las métricas cuantitativas clave para las tarjetas KPI."""
+    """Calcula las métricas cuantitativas clave y detalladas para el panel y modal de estadísticas."""
     with SessionLocal() as session:
         trades = session.query(TradeRecord).filter(TradeRecord.status == "CLOSED").all()
         total_closed = len(trades)
@@ -287,11 +292,23 @@ def get_performance_stats() -> Dict[str, Any]:
         win_rate = (wins / total_closed * 100) if total_closed > 0 else 0.0
         total_pnl = sum(t.pnl_usd for t in trades)
 
-        # Trades de hoy
+        gross_profit = sum(t.pnl_usd for t in trades if t.pnl_usd > 0)
+        gross_loss = sum(abs(t.pnl_usd) for t in trades if t.pnl_usd < 0)
+        profit_factor = round(gross_profit / gross_loss, 2) if gross_loss > 0 else (round(gross_profit, 2) if gross_profit > 0 else 0.0)
+
+        best_trade = max((t.pnl_usd for t in trades), default=0.0)
+        worst_trade = min((t.pnl_usd for t in trades), default=0.0)
+        avg_trade_pnl = round(total_pnl / total_closed, 2) if total_closed > 0 else 0.0
+        total_volume_usd = sum((t.amount * t.entry_price) for t in trades if t.entry_price)
+
+        # Trades cerrados hoy
         today_str = date.today().strftime("%Y-%m-%d")
         today_trades = [t for t in trades if t.closed_at and t.closed_at.strftime("%Y-%m-%d") == today_str]
         daily_pnl = sum(t.pnl_usd for t in today_trades)
+        today_wins = sum(1 for t in today_trades if t.pnl_usd > 0)
+        today_losses = sum(1 for t in today_trades if t.pnl_usd < 0)
 
+        # Estado del bot
         state = session.query(BotStateRecord).filter_by(id=1).first()
         is_active = state.is_active if state else True
         consecutive_losses = state.consecutive_losses if state else 0
@@ -305,6 +322,16 @@ def get_performance_stats() -> Dict[str, Any]:
             "win_rate": round(win_rate, 1),
             "total_pnl": round(total_pnl, 2),
             "daily_pnl": round(daily_pnl, 2),
+            "gross_profit": round(gross_profit, 2),
+            "gross_loss": round(gross_loss, 2),
+            "profit_factor": profit_factor,
+            "best_trade": round(best_trade, 2),
+            "worst_trade": round(worst_trade, 2),
+            "avg_trade_pnl": avg_trade_pnl,
+            "total_volume_usd": round(total_volume_usd, 2),
+            "today_trades": len(today_trades),
+            "today_wins": today_wins,
+            "today_losses": today_losses,
             "consecutive_losses": consecutive_losses,
             "is_active": is_active,
             "circuit_breaker_triggered": cb_triggered,

@@ -175,27 +175,47 @@
                 </div>
             </div>
 
-            <!-- PnL Diario -->
-            <div class="p-3.5 rounded-xl glass-panel">
-                <div class="text-[11px] font-medium text-slate-400 uppercase tracking-wider">PnL Hoy</div>
-                <div class="text-xl font-bold font-mono mt-1"
-                     :class="stats.daily_pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'">
-                    <span x-text="stats.daily_pnl >= 0 ? '+' : ''"></span>$<span x-text="formatNumber(stats.daily_pnl)">0.00</span>
+            <!-- PnL Diario EN VIVO con Miniatura de Estadísticas -->
+            <div class="p-3.5 rounded-xl glass-panel relative overflow-hidden group">
+                <div class="flex items-center justify-between">
+                    <div class="text-[11px] font-medium text-slate-400 uppercase tracking-wider flex items-center space-x-1.5">
+                        <span>PnL Hoy</span>
+                        <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" title="Actualizado en tiempo real"></span>
+                    </div>
+                    <!-- Botón Miniatura para abrir Modal de Estadísticas -->
+                    <button @click="showStatsModal = true"
+                            class="text-[9px] font-mono font-bold px-2 py-0.5 rounded bg-sky-500/15 text-sky-300 border border-sky-500/30 hover:bg-sky-500/30 hover:border-sky-400 transition-all flex items-center space-x-1 shadow-sm"
+                            title="Abrir estadísticas detalladas del bot">
+                        <span>📊</span>
+                        <span>Métricas</span>
+                    </button>
                 </div>
-                <div class="text-[10px] text-slate-500 mt-0.5">
-                    Total Acum: $<span x-text="formatNumber(stats.total_pnl)">0.00</span>
+                <div class="text-xl font-bold font-mono mt-1 flex items-baseline space-x-1.5"
+                     :class="liveTodayNetPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'">
+                    <span><span x-text="liveTodayNetPnl >= 0 ? '+' : ''"></span>$<span x-text="formatNumber(liveTodayNetPnl)">0.00</span></span>
+                    <span class="text-[10px] font-medium opacity-80" x-text="liveTodayNetPnl >= 0 ? 'ganado' : 'perdido'"></span>
+                </div>
+                <div class="text-[10px] text-slate-400 mt-0.5 flex items-center justify-between font-mono">
+                    <span>Cerrado: <span :class="stats.daily_pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'" x-text="(stats.daily_pnl >= 0 ? '+' : '') + '$' + formatNumber(stats.daily_pnl)">$0.00</span></span>
+                    <span class="text-slate-600">|</span>
+                    <span>Flotante: <span :class="liveUnrealizedPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'" x-text="(liveUnrealizedPnl >= 0 ? '+' : '') + '$' + formatNumber(liveUnrealizedPnl)">$0.00</span></span>
                 </div>
             </div>
 
-            <!-- Win Rate -->
-            <div class="p-3.5 rounded-xl glass-panel">
-                <div class="text-[11px] font-medium text-slate-400 uppercase tracking-wider">Win Rate</div>
-                <div class="text-xl font-bold font-mono text-white mt-1">
-                    <span x-text="stats.win_rate">0</span>%
+            <!-- Win Rate con acceso a estadísticas -->
+            <div class="p-3.5 rounded-xl glass-panel cursor-pointer hover:border-slate-700 transition-colors"
+                 @click="showStatsModal = true"
+                 title="Haz clic para ver desglose completo de estadísticas">
+                <div class="flex items-center justify-between">
+                    <div class="text-[11px] font-medium text-slate-400 uppercase tracking-wider">Win Rate</div>
+                    <span class="text-[9px] text-sky-400/80 hover:text-sky-300 font-mono">Detalles ↗</span>
                 </div>
-                <div class="text-[10px] text-slate-500 mt-0.5">
-                    <span class="text-emerald-400 font-semibold" x-text="stats.wins">0</span>W /
-                    <span class="text-rose-400 font-semibold" x-text="stats.losses">0</span>L (<span x-text="stats.total_trades">0</span>)
+                <div class="text-xl font-bold font-mono text-white mt-1 flex items-baseline space-x-1">
+                    <span x-text="stats.win_rate">0</span><span class="text-xs text-slate-400">%</span>
+                </div>
+                <div class="text-[10px] text-slate-500 mt-0.5 flex items-center justify-between font-mono">
+                    <span><span class="text-emerald-400 font-semibold" x-text="stats.wins">0</span>W / <span class="text-rose-400 font-semibold" x-text="stats.losses">0</span>L (<span x-text="stats.total_trades">0</span>)</span>
+                    <span class="text-slate-400" x-text="'PF: ' + (stats.profit_factor || '0.0')"></span>
                 </div>
             </div>
 
@@ -250,28 +270,40 @@
 
             <div class="space-y-2.5">
                 <template x-for="pos in positions" :key="pos.symbol">
-                    <div class="p-3 rounded-lg bg-slate-900/80 border border-slate-800 flex flex-col md:flex-row md:items-center md:justify-between gap-2.5">
-                        <div class="flex items-center justify-between md:justify-start md:space-x-4">
+                    <div class="p-3.5 rounded-lg bg-slate-900/80 border border-slate-800 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                        <div class="flex flex-col sm:flex-row sm:items-center justify-between md:justify-start sm:space-x-4 gap-2">
                             <div>
-                                <div class="flex items-center space-x-2">
+                                <div class="flex items-center space-x-2 flex-wrap">
                                     <span class="text-sm font-bold text-white font-mono" x-text="pos.symbol"></span>
                                     <span class="text-[10px] px-1.5 py-0.5 rounded font-bold uppercase font-mono"
                                           :class="pos.side === 'BUY' || pos.side === 'LONG' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' : 'bg-rose-500/10 text-rose-400 border border-rose-500/30'"
                                           x-text="pos.side"></span>
                                     <span class="text-[10px] text-slate-400 font-mono" x-text="pos.leverage + 'x'"></span>
+                                    
+                                    <!-- VALOR EN USDT DEL CAPITAL / MARGEN INVERTIDO -->
+                                    <span class="text-[10px] px-2 py-0.5 rounded font-mono font-bold bg-amber-500/10 text-amber-300 border border-amber-500/30">
+                                        Margen: $<span x-text="formatNumber(pos.margin_usdt || pos.initial_margin)">0.00</span> USDT
+                                    </span>
                                 </div>
-                                <div class="text-xs text-slate-400 mt-0.5 font-mono">
-                                    Entrada: $<span x-text="pos.entry_price"></span> | Actual: $<span x-text="pos.current_price"></span>
+                                <div class="text-xs text-slate-400 mt-1 font-mono flex flex-wrap items-center gap-x-2">
+                                    <span>Entrada: $<span x-text="pos.entry_price"></span></span>
+                                    <span class="text-slate-600">•</span>
+                                    <span>Actual: $<span x-text="pos.current_price"></span></span>
+                                    <template x-if="pos.notional_usdt">
+                                        <span class="text-slate-500 hidden sm:inline">
+                                            • Total: $<span x-text="formatNumber(pos.notional_usdt)"></span>
+                                        </span>
+                                    </template>
                                 </div>
                             </div>
 
-                            <div class="text-right md:text-left">
+                            <div class="text-left sm:text-right md:text-left pt-1 sm:pt-0 border-t border-slate-800/60 sm:border-0">
                                 <div class="text-sm font-bold font-mono"
                                      :class="pos.unrealized_pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'">
                                     <span x-text="pos.unrealized_pnl >= 0 ? '+' : ''"></span>$<span x-text="formatNumber(pos.unrealized_pnl)"></span>
                                 </div>
                                 <div class="text-[10px] text-slate-500 font-mono">
-                                    Contratos: <span x-text="pos.amount"></span>
+                                    Lote: <span x-text="pos.amount"></span> contratos
                                 </div>
                             </div>
                         </div>
@@ -472,6 +504,7 @@
                             <th class="pb-2">Fecha</th>
                             <th class="pb-2">Activo</th>
                             <th class="pb-2">Lado</th>
+                            <th class="pb-2">Margen (USDT)</th>
                             <th class="pb-2">Entrada</th>
                             <th class="pb-2">Salida</th>
                             <th class="pb-2 text-right">PnL Neto</th>
@@ -487,6 +520,10 @@
                                           :class="trade.side === 'BUY' ? 'text-emerald-400 bg-emerald-500/10' : 'text-rose-400 bg-rose-500/10'"
                                           x-text="trade.side"></span>
                                 </td>
+                                <td class="py-2.5 text-amber-300 font-semibold">
+                                    $<span x-text="formatNumber(trade.margin_usdt)"></span>
+                                    <span class="text-[9px] text-slate-500 font-normal" x-text="'(' + trade.leverage + 'x)'"></span>
+                                </td>
                                 <td class="py-2.5 text-slate-300">$<span x-text="trade.entry_price"></span></td>
                                 <td class="py-2.5 text-slate-300">$<span x-text="trade.exit_price || '-'"></span></td>
                                 <td class="py-2.5 text-right font-bold"
@@ -497,7 +534,7 @@
                         </template>
                         <template x-if="trades.length === 0">
                             <tr>
-                                <td colspan="6" class="py-4 text-center text-slate-500">Sin operaciones cerradas aún.</td>
+                                <td colspan="7" class="py-4 text-center text-slate-500">Sin operaciones cerradas aún.</td>
                             </tr>
                         </template>
                     </tbody>
@@ -963,6 +1000,178 @@
         </div>
     </div>
 
+    <!-- MODAL FINTECH: ESTADÍSTICAS COMPLETAS DEL BOT -->
+    <div x-show="showStatsModal"
+         x-transition:enter="transition ease-out duration-200"
+         x-transition:enter-start="opacity-0"
+         x-transition:enter-end="opacity-100"
+         x-transition:leave="transition ease-in duration-150"
+         x-transition:leave-start="opacity-100"
+         x-transition:leave-end="opacity-0"
+         class="fixed inset-0 z-50 overflow-y-auto bg-black/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4"
+         @keydown.escape.window="showStatsModal = false"
+         x-cloak>
+
+        <div class="bg-slate-900 border border-slate-700/80 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col max-h-[92vh] border-sky-500/20"
+             @click.away="showStatsModal = false">
+
+            <!-- Encabezado del Modal -->
+            <div class="px-5 py-3.5 border-b border-slate-800 bg-slate-950/70 flex items-center justify-between">
+                <div class="flex items-center space-x-2.5">
+                    <div class="w-8 h-8 rounded-lg bg-sky-500/10 border border-sky-500/30 flex items-center justify-center">
+                        <span class="text-sky-400 text-base">📊</span>
+                    </div>
+                    <div>
+                        <h3 class="text-sm font-bold text-white font-mono uppercase tracking-wider">Estadísticas del Bot</h3>
+                        <p class="text-[10px] text-slate-400 font-mono">Métricas cuantitativas y auditoría de operaciones en tiempo real</p>
+                    </div>
+                </div>
+                <button @click="showStatsModal = false" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors text-lg">✕</button>
+            </div>
+
+            <!-- Contenido del Modal -->
+            <div class="p-5 overflow-y-auto space-y-4 font-sans text-xs">
+                
+                <!-- Tarjeta Principal de PnL y Rendimiento -->
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                    <div class="p-3 rounded-xl bg-slate-950/80 border border-slate-800">
+                        <div class="text-[10px] text-slate-400 uppercase font-mono">PnL Hoy (En Vivo)</div>
+                        <div class="text-lg font-bold font-mono mt-1"
+                             :class="liveTodayNetPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'">
+                            <span x-text="liveTodayNetPnl >= 0 ? '+' : ''"></span>$<span x-text="formatNumber(liveTodayNetPnl)">0.00</span>
+                        </div>
+                        <div class="text-[9px] text-slate-500 mt-0.5 font-mono">
+                            Cerrado: $<span x-text="formatNumber(stats.daily_pnl)">0.00</span>
+                        </div>
+                    </div>
+
+                    <div class="p-3 rounded-xl bg-slate-950/80 border border-slate-800">
+                        <div class="text-[10px] text-slate-400 uppercase font-mono">PnL Histórico</div>
+                        <div class="text-lg font-bold font-mono mt-1"
+                             :class="stats.total_pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'">
+                            <span x-text="stats.total_pnl >= 0 ? '+' : ''"></span>$<span x-text="formatNumber(stats.total_pnl)">0.00</span>
+                        </div>
+                        <div class="text-[9px] text-slate-500 mt-0.5 font-mono">
+                            Trades cerrados
+                        </div>
+                    </div>
+
+                    <div class="p-3 rounded-xl bg-slate-950/80 border border-slate-800">
+                        <div class="text-[10px] text-slate-400 uppercase font-mono">Win Rate</div>
+                        <div class="text-lg font-bold font-mono text-white mt-1">
+                            <span x-text="stats.win_rate">0</span>%
+                        </div>
+                        <div class="text-[9px] text-slate-500 mt-0.5 font-mono">
+                            <span class="text-emerald-400" x-text="stats.wins"></span>W / <span class="text-rose-400" x-text="stats.losses"></span>L
+                        </div>
+                    </div>
+
+                    <div class="p-3 rounded-xl bg-slate-950/80 border border-slate-800">
+                        <div class="text-[10px] text-slate-400 uppercase font-mono">Profit Factor</div>
+                        <div class="text-lg font-bold font-mono text-sky-400 mt-1" x-text="stats.profit_factor || '0.0'">
+                            0.0
+                        </div>
+                        <div class="text-[9px] text-slate-500 mt-0.5 font-mono">
+                            Ratio Beneficio/Riesgo
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Barra Visual de Win Rate -->
+                <div class="p-3.5 rounded-xl bg-slate-950/60 border border-slate-800 space-y-2">
+                    <div class="flex items-center justify-between text-[11px] font-mono">
+                        <span class="text-slate-300 font-bold">Distribución de Operaciones:</span>
+                        <span class="text-slate-400">
+                            <span class="text-emerald-400 font-bold" x-text="stats.wins">0</span> Ganadoras (<span x-text="stats.win_rate">0</span>%) vs 
+                            <span class="text-rose-400 font-bold" x-text="stats.losses">0</span> Perdedoras
+                        </span>
+                    </div>
+                    <div class="w-full bg-slate-800 rounded-full h-3 flex overflow-hidden">
+                        <div class="bg-emerald-500 transition-all duration-500" :style="'width: ' + (stats.win_rate || 0) + '%'"></div>
+                        <div class="bg-rose-500 transition-all duration-500" :style="'width: ' + (100 - (stats.win_rate || 0)) + '%'"></div>
+                    </div>
+                </div>
+
+                <!-- Grid de Métricas Cuantitativas Avanzadas -->
+                <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    <div class="p-3 rounded-xl bg-slate-950/40 border border-slate-800/80">
+                        <div class="text-[10px] text-slate-400 uppercase font-mono">🚀 Mejor Trade</div>
+                        <div class="text-base font-bold font-mono text-emerald-400 mt-1">
+                            +$<span x-text="formatNumber(stats.best_trade)">0.00</span>
+                        </div>
+                        <div class="text-[9px] text-slate-500 mt-0.5">Mayor ganancia individual</div>
+                    </div>
+
+                    <div class="p-3 rounded-xl bg-slate-950/40 border border-slate-800/80">
+                        <div class="text-[10px] text-slate-400 uppercase font-mono">🔻 Peor Trade</div>
+                        <div class="text-base font-bold font-mono text-rose-400 mt-1">
+                            -$<span x-text="formatNumber(Math.abs(stats.worst_trade))">0.00</span>
+                        </div>
+                        <div class="text-[9px] text-slate-500 mt-0.5">Mayor pérdida acotada por SL</div>
+                    </div>
+
+                    <div class="p-3 rounded-xl bg-slate-950/40 border border-slate-800/80">
+                        <div class="text-[10px] text-slate-400 uppercase font-mono">⚖️ PnL Promedio</div>
+                        <div class="text-base font-bold font-mono mt-1"
+                             :class="stats.avg_trade_pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'">
+                            <span x-text="stats.avg_trade_pnl >= 0 ? '+' : ''"></span>$<span x-text="formatNumber(stats.avg_trade_pnl)">0.00</span>
+                        </div>
+                        <div class="text-[9px] text-slate-500 mt-0.5">Esperanza matemática / trade</div>
+                    </div>
+
+                    <div class="p-3 rounded-xl bg-slate-950/40 border border-slate-800/80">
+                        <div class="text-[10px] text-slate-400 uppercase font-mono">💵 Ganancias Brutas</div>
+                        <div class="text-base font-bold font-mono text-emerald-400 mt-1">
+                            +$<span x-text="formatNumber(stats.gross_profit)">0.00</span>
+                        </div>
+                        <div class="text-[9px] text-slate-500 mt-0.5">Suma operaciones en verde</div>
+                    </div>
+
+                    <div class="p-3 rounded-xl bg-slate-950/40 border border-slate-800/80">
+                        <div class="text-[10px] text-slate-400 uppercase font-mono">💸 Pérdidas Brutas</div>
+                        <div class="text-base font-bold font-mono text-rose-400 mt-1">
+                            -$<span x-text="formatNumber(stats.gross_loss)">0.00</span>
+                        </div>
+                        <div class="text-[9px] text-slate-500 mt-0.5">Suma operaciones en rojo</div>
+                    </div>
+
+                    <div class="p-3 rounded-xl bg-slate-950/40 border border-slate-800/80">
+                        <div class="text-[10px] text-slate-400 uppercase font-mono">📦 Volumen Operado</div>
+                        <div class="text-base font-bold font-mono text-slate-200 mt-1">
+                            $<span x-text="formatNumber(stats.total_volume_usd)">0.00</span>
+                        </div>
+                        <div class="text-[9px] text-slate-500 mt-0.5">Total negociado en USDT</div>
+                    </div>
+                </div>
+
+                <!-- Resumen de Hoy y Seguridad -->
+                <div class="p-3.5 rounded-xl bg-emerald-950/20 border border-emerald-500/30 flex items-center justify-between text-xs">
+                    <div>
+                        <div class="font-bold text-emerald-400 font-mono">Auditoría del Día de Hoy:</div>
+                        <div class="text-slate-300 mt-0.5">
+                            <span x-text="stats.today_trades || 0">0</span> operaciones cerradas hoy (<span class="text-emerald-400" x-text="stats.today_wins || 0"></span>W / <span class="text-rose-400" x-text="stats.today_losses || 0"></span>L).
+                        </div>
+                    </div>
+                    <div class="text-right font-mono">
+                        <span class="text-[10px] text-slate-400">Pérdidas consecutivas:</span>
+                        <div class="text-sm font-bold" :class="stats.consecutive_losses > 0 ? 'text-amber-400' : 'text-emerald-400'">
+                            <span x-text="stats.consecutive_losses">0</span> / 3 Max
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- Pie del Modal -->
+            <div class="px-5 py-3 border-t border-slate-800 bg-slate-950/80 flex justify-end">
+                <button @click="showStatsModal = false"
+                        class="px-4 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-medium text-xs font-mono transition-colors">
+                    Cerrar
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Script de Alpine.js -->
     <script>
         function tradingDashboard() {
@@ -979,6 +1188,7 @@
                 telegramEnabled: true,
                 showWatchlist: false,
                 showSettingsModal: false,
+                showStatsModal: false,
                 settingsTab: 'bingx',
                 isSavingSettings: false,
                 saveSuccessMsg: '',
@@ -1031,6 +1241,16 @@
                         this.loadWatchlist();
                         this.loadRecentLogs();
                     }, 4000);
+                },
+
+                get liveUnrealizedPnl() {
+                    if (!this.positions || this.positions.length === 0) return 0.0;
+                    return this.positions.reduce((acc, p) => acc + (Number(p.unrealized_pnl) || 0), 0);
+                },
+
+                get liveTodayNetPnl() {
+                    const closedToday = Number(this.stats?.daily_pnl) || 0;
+                    return closedToday + this.liveUnrealizedPnl;
                 },
 
                 get filteredWatchlist() {
