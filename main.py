@@ -154,6 +154,8 @@ class ConfigPayload(BaseModel):
     break_even_enabled: Optional[bool] = None
     break_even_trigger_pct: Optional[float] = None
     break_even_offset_pct: Optional[float] = None
+    adx_filter_enabled: Optional[bool] = None
+    adx_min_threshold: Optional[float] = None
     default_risk_ratio: Optional[float] = None
     default_sl_pct: Optional[float] = None
     max_simultaneous_positions: Optional[int] = None
@@ -403,6 +405,8 @@ def get_full_config():
         "break_even_enabled": getattr(config, "BREAK_EVEN_ENABLED", True),
         "break_even_trigger_pct": getattr(config, "BREAK_EVEN_TRIGGER_PCT", 1.0),
         "break_even_offset_pct": getattr(config, "BREAK_EVEN_OFFSET_PCT", 0.08),
+        "adx_filter_enabled": getattr(config, "ADX_FILTER_ENABLED", True),
+        "adx_min_threshold": getattr(config, "ADX_MIN_THRESHOLD", 22.0),
         "default_risk_ratio": config.DEFAULT_RISK_RATIO,
         "default_sl_pct": config.DEFAULT_SL_PCT,
         "max_simultaneous_positions": config.MAX_SIMULTANEOUS_POSITIONS,
@@ -439,6 +443,8 @@ def update_full_config(payload: ConfigPayload):
         "BREAK_EVEN_ENABLED": payload.break_even_enabled,
         "BREAK_EVEN_TRIGGER_PCT": payload.break_even_trigger_pct,
         "BREAK_EVEN_OFFSET_PCT": payload.break_even_offset_pct,
+        "ADX_FILTER_ENABLED": payload.adx_filter_enabled,
+        "ADX_MIN_THRESHOLD": payload.adx_min_threshold,
         "DEFAULT_RISK_RATIO": payload.default_risk_ratio,
         "DEFAULT_SL_PCT": payload.default_sl_pct,
         "MAX_SIMULTANEOUS_POSITIONS": payload.max_simultaneous_positions,

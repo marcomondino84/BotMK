@@ -53,6 +53,18 @@ class Config(BaseSettings):
         description="Holgura sobre precio de entrada para pagar comisiones de apertura y cierre (+0.08%)"
     )
 
+    # Nivel 1: Filtro Anti-Lateralidad (ADX > 22)
+    ADX_FILTER_ENABLED: bool = Field(
+        default=True,
+        description="Bloquea entradas automáticas si el ADX < 22 en 15m para evitar pérdidas en mercados laterales"
+    )
+    ADX_MIN_THRESHOLD: float = Field(
+        default=22.0,
+        ge=10.0,
+        le=50.0,
+        description="Umbral mínimo de fuerza de tendencia ADX para validar operaciones (default: 22.0)"
+    )
+
     # Reglas de salida obligatorias (SL / TP)
     DEFAULT_RISK_RATIO: float = Field(
         default=1.5,

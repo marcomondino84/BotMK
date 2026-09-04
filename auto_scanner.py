@@ -11,6 +11,35 @@ from config import config, ASSET_CATALOG
 from database import get_bot_state, set_scanner_state, add_system_log, get_db_watchlist
 
 
+def calculate_adx(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
+    """Calcula True Range, +DI, -DI y ADX (Average Directional Index) con suavizado de Wilder."""
+    tr1 = df["high"] - df["low"]
+    tr2 = (df["high"] - df["close"].shift(1)).abs()
+    tr3 = (df["low"] - df["close"].shift(1)).abs()
+    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+
+    up_move = df["high"] - df["high"].shift(1)
+    down_move = df["low"].shift(1) - df["low"]
+
+    plus_dm = pd.Series(0.0, index=df.index)
+    minus_dm = pd.Series(0.0, index=df.index)
+
+    plus_dm[(up_move > down_move) & (up_move > 0)] = up_move
+    minus_dm[(down_move > up_move) & (down_move > 0)] = down_move
+
+    atr = tr.ewm(alpha=1.0 / period, adjust=False).mean()
+    plus_di = 100.0 * (plus_dm.ewm(alpha=1.0 / period, adjust=False).mean() / (atr + 1e-9))
+    minus_di = 100.0 * (minus_dm.ewm(alpha=1.0 / period, adjust=False).mean() / (atr + 1e-9))
+
+    dx = 100.0 * ((plus_di - minus_di).abs() / (plus_di + minus_di + 1e-9))
+    adx = dx.ewm(alpha=1.0 / period, adjust=False).mean()
+
+    df["plus_di"] = plus_di
+    df["minus_di"] = minus_di
+    df["adx"] = adx
+    return df
+
+
 class AutoScanner:
     """Motor de análisis técnico cuantitativo multi-temporalidad (5m y 15m)."""
 
@@ -163,11 +192,11 @@ class AutoScanner:
     async def _analyze_mtf(self, exchange_symbol: str) -> Optional[str]:
         """
         Análisis Cuantitativo Multi-Temporalidad Institucional:
-        1. Marco 15m: Filtro de Tendencia Macro (EMA 21/50 y RSI 14).
+        1. Marco 15m: Filtro de Tendencia Macro (EMA 21/50 y RSI 14) + Nivel 1: Filtro Anti-Lateralidad (ADX > 22).
         2. Marco 5m: Gatillo de Cruce reciente (últimos 15 min) o Momentum confirmado.
         """
         try:
-            # --- PASO 1: MARCO DE 15 MINUTOS (TENDENCIA DOMINANTE) ---
+            # --- PASO 1: MARCO DE 15 MINUTOS (TENDENCIA DOMINANTE + FILTRO ANTI-LATERALIDAD) ---
             ohlcv_15m = await asyncio.to_thread(
                 self.client.exchange.fetch_ohlcv,
                 exchange_symbol,
@@ -188,11 +217,33 @@ class AutoScanner:
             rs_15 = gain_15 / (loss_15 + 1e-9)
             df_15["rsi"] = 100 - (100 / (1 + rs_15))
 
-            c15 = df_15.iloc[-1]
+            # Nivel 1: ADX en 15m (Filtro de Fuerza de Tendencia vs Lateralidad)
+            df_15 = calculate_adx(df_15, period=14)
 
-            # Tendencia macro estructurada en 15m
-            is_bullish_15m = (c15["ema_21"] > c15["ema_50"] or c15["close"] > c15["ema_21"]) and c15["rsi"] >= 48
-            is_bearish_15m = (c15["ema_21"] < c15["ema_50"] or c15["close"] < c15["ema_21"]) and c15["rsi"] <= 52
+            c15 = df_15.iloc[-1]
+            adx_val = float(c15.get("adx", 0.0))
+            plus_di = float(c15.get("plus_di", 0.0))
+            minus_di = float(c15.get("minus_di", 0.0))
+
+            # Evaluar Nivel 1: Filtro Anti-Lateralidad
+            adx_enabled = getattr(config, "ADX_FILTER_ENABLED", True)
+            adx_threshold = float(getattr(config, "ADX_MIN_THRESHOLD", 22.0))
+
+            if adx_enabled and adx_val < adx_threshold:
+                # El mercado carece de fuerza direccional (rango lateral / compresión)
+                return None
+
+            # Tendencia macro estructurada en 15m con confirmación direccional ADX
+            is_bullish_15m = (
+                (c15["ema_21"] > c15["ema_50"] or c15["close"] > c15["ema_21"]) and 
+                c15["rsi"] >= 48 and 
+                (not adx_enabled or plus_di >= minus_di)
+            )
+            is_bearish_15m = (
+                (c15["ema_21"] < c15["ema_50"] or c15["close"] < c15["ema_21"]) and 
+                c15["rsi"] <= 52 and 
+                (not adx_enabled or minus_di >= plus_di)
+            )
 
             if not is_bullish_15m and not is_bearish_15m:
                 return None
