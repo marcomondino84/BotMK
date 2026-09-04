@@ -1,0 +1,1365 @@
+<!DOCTYPE html>
+<html lang="es" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>BotMK - BingX Quant Multi-Asset Terminal</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            dark: '#080b11',
+                            card: '#0f1422',
+                            border: '#1e293b',
+                            accent: '#10b981',
+                            terminal: '#05070d'
+                        }
+                    },
+                    fontFamily: {
+                        mono: ['JetBrains Mono', 'Fira Code', 'Courier New', 'monospace'],
+                        sans: ['Inter', 'system-ui', 'sans-serif']
+                    }
+                }
+            }
+        }
+    </script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.5/dist/cdn.min.js"></script>
+    <style>
+        ::-webkit-scrollbar { width: 4px; height: 4px; }
+        ::-webkit-scrollbar-track { background: #080b11; }
+        ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 2px; }
+        .glass-panel {
+            background: rgba(15, 20, 34, 0.88);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        [x-cloak] { display: none !important; }
+    </style>
+</head>
+<body class="bg-brand-dark text-slate-100 font-sans min-h-screen antialiased selection:bg-emerald-500 selection:text-black pb-12"
+      x-data="tradingDashboard()"
+      x-init="initApp()"
+      x-cloak>
+
+    <!-- Barra Superior Móvil -->
+    <header class="sticky top-0 z-50 glass-panel border-b border-brand-border px-4 py-3">
+        <div class="max-w-6xl mx-auto flex items-center justify-between">
+            <!-- Brand & Status -->
+            <div class="flex items-center space-x-3">
+                <div class="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center">
+                    <span class="text-emerald-400 font-bold text-lg font-mono">⚡</span>
+                </div>
+                <div>
+                    <div class="flex items-center space-x-2">
+                        <h1 class="text-sm font-bold tracking-wider uppercase text-white font-mono">BotMK BingX</h1>
+                        
+                        <!-- BOTÓN CONMUTADOR DEMO / REAL (Clic para cambiar) -->
+                        <button @click="switchEnvironment()"
+                                :disabled="isLoading"
+                                class="text-[10px] px-2 py-0.5 rounded font-mono font-bold transition-all shadow-sm flex items-center space-x-1"
+                                :class="isDemo ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30' : 'bg-rose-500/20 text-rose-300 border border-rose-500/40 hover:bg-rose-500/30'"
+                                title="Haz clic para alternar entre cuenta Demo y Real">
+                            <span x-text="isDemo ? '🟡 DEMO (VST)' : '🔴 REAL (USDT)'"></span>
+                            <span class="text-[8px] opacity-70">⇄</span>
+                        </button>
+                    </div>
+                    <div class="flex items-center space-x-2 mt-0.5">
+                        <div class="flex items-center space-x-1.5">
+                            <span class="relative flex h-2 w-2">
+                                <span class="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75"
+                                      :class="isBotActive ? 'bg-emerald-400' : 'bg-red-400'"></span>
+                                <span class="relative inline-flex rounded-full h-2 w-2"
+                                      :class="isBotActive ? 'bg-emerald-500' : 'bg-red-500'"></span>
+                            </span>
+                            <span class="text-[11px] text-slate-400 font-medium"
+                                  x-text="circuitBreakerTriggered ? 'CIRCUIT BREAKER' : (isBotActive ? 'ACTIVO' : 'EN PAUSA')">
+                            </span>
+                        </div>
+                        <span class="text-slate-600 text-[10px]">•</span>
+                        <span class="text-[10px] text-sky-400 font-mono">MTF: 5m + 15m</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Switches Principales y Ajustes -->
+            <div class="flex items-center space-x-2">
+                <!-- Botón Configuración Integral -->
+                <button @click="openSettingsModal()"
+                        class="text-[10px] font-mono px-2 py-1.5 rounded border border-slate-700 bg-slate-800/90 hover:bg-slate-700 text-slate-200 transition-all flex items-center space-x-1 shadow-sm"
+                        title="Abrir Panel de Configuración Integral">
+                    <span>⚙️</span>
+                    <span class="hidden sm:inline font-bold">Ajustes</span>
+                </button>
+
+                <!-- Switch Auto-Scanner MTF -->
+                <button @click="toggleScanner()"
+                        class="text-[10px] font-mono px-2 py-1 rounded border transition-colors flex items-center space-x-1"
+                        :class="scannerActive ? 'bg-sky-500/20 text-sky-300 border-sky-500/40 font-bold' : 'bg-slate-800/80 text-slate-500 border-slate-700'">
+                    <span class="w-1.5 h-1.5 rounded-full" :class="scannerActive ? 'bg-sky-400 animate-pulse' : 'bg-slate-600'"></span>
+                    <span x-text="scannerActive ? 'SCAN ON' : 'SCAN OFF'"></span>
+                </button>
+
+                <!-- Switch Principal ON/OFF -->
+                <button @click="toggleBot()"
+                        :disabled="isLoading"
+                        class="relative inline-flex h-8 w-14 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        :class="isBotActive ? 'bg-emerald-600' : 'bg-slate-700'">
+                    <span class="sr-only">Encender o apagar</span>
+                    <span class="inline-block h-6 w-6 transform rounded-full bg-white transition-transform shadow-md flex items-center justify-center text-[10px] font-bold font-mono"
+                          :class="isBotActive ? 'translate-x-7 text-emerald-600' : 'translate-x-1 text-slate-600'"
+                          x-text="isBotActive ? 'ON' : 'OFF'">
+                    </span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-6xl mx-auto px-4 pt-4 space-y-4">
+
+        <!-- Banner Alerta de Circuit Breaker -->
+        <template x-if="circuitBreakerTriggered">
+            <div class="p-3.5 rounded-xl bg-red-950/50 border border-red-500/40 text-red-200 flex items-start justify-between">
+                <div class="flex items-start space-x-2.5">
+                    <span class="text-red-400 text-lg">⚠️</span>
+                    <div>
+                        <h4 class="text-xs font-bold uppercase tracking-wide text-red-400">Circuit Breaker Disparado</h4>
+                        <p class="text-xs text-red-300 mt-0.5" x-text="circuitBreakerReason || 'Pérdidas acumuladas superaron el límite de seguridad.'"></p>
+                    </div>
+                </div>
+                <button @click="resetCircuitBreaker()"
+                        class="px-2.5 py-1 text-xs font-medium bg-red-500/20 hover:bg-red-500/30 text-red-200 rounded border border-red-500/30">
+                    Restablecer
+                </button>
+            </div>
+        </template>
+
+        <!-- Tarjetas KPI -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <!-- Balance Total -->
+            <div class="p-3.5 rounded-xl glass-panel">
+                <div class="flex items-center justify-between">
+                    <div class="text-[11px] font-medium text-slate-400 uppercase tracking-wider">Balance Total</div>
+                    <span class="text-[9px] px-1.5 py-0.2 rounded font-mono font-bold"
+                          :class="isDemo ? 'bg-amber-500/10 text-amber-400' : 'bg-rose-500/10 text-rose-400'"
+                          x-text="balance.asset"></span>
+                </div>
+                <div class="text-xl font-bold font-mono text-white mt-1">
+                    $<span x-text="formatNumber(balance.total)">0.00</span>
+                </div>
+                <div class="text-[10px] text-slate-500 mt-0.5">
+                    Libre: $<span x-text="formatNumber(balance.free)">0.00</span>
+                </div>
+            </div>
+
+            <!-- PnL Diario -->
+            <div class="p-3.5 rounded-xl glass-panel">
+                <div class="text-[11px] font-medium text-slate-400 uppercase tracking-wider">PnL Hoy</div>
+                <div class="text-xl font-bold font-mono mt-1"
+                     :class="stats.daily_pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'">
+                    <span x-text="stats.daily_pnl >= 0 ? '+' : ''"></span>$<span x-text="formatNumber(stats.daily_pnl)">0.00</span>
+                </div>
+                <div class="text-[10px] text-slate-500 mt-0.5">
+                    Total Acum: $<span x-text="formatNumber(stats.total_pnl)">0.00</span>
+                </div>
+            </div>
+
+            <!-- Win Rate -->
+            <div class="p-3.5 rounded-xl glass-panel">
+                <div class="text-[11px] font-medium text-slate-400 uppercase tracking-wider">Win Rate</div>
+                <div class="text-xl font-bold font-mono text-white mt-1">
+                    <span x-text="stats.win_rate">0</span>%
+                </div>
+                <div class="text-[10px] text-slate-500 mt-0.5">
+                    <span class="text-emerald-400 font-semibold" x-text="stats.wins">0</span>W /
+                    <span class="text-rose-400 font-semibold" x-text="stats.losses">0</span>L (<span x-text="stats.total_trades">0</span>)
+                </div>
+            </div>
+
+            <!-- Notificaciones Telegram y Estrategia -->
+            <div class="p-3.5 rounded-xl glass-panel">
+                <div class="flex items-center justify-between">
+                    <div class="text-[11px] font-medium text-slate-400 uppercase tracking-wider">Telegram & MTF</div>
+                    <div class="flex items-center space-x-1.5">
+                        <!-- Switch Silenciar / Activar Telegram -->
+                        <button @click="toggleTelegram()"
+                                class="text-[9px] px-1.5 py-0.5 rounded font-mono font-bold transition-all flex items-center space-x-1 shadow-sm"
+                                :class="telegramEnabled ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30' : 'bg-slate-800 text-slate-500 border border-slate-700 hover:bg-slate-700'"
+                                :title="telegramEnabled ? 'Clic para silenciar alertas de Telegram' : 'Clic para activar alertas de Telegram'">
+                            <span x-text="telegramEnabled ? '🔔 ON' : '🔕 MUDO'"></span>
+                        </button>
+                        <button @click="testTelegram()"
+                                class="text-[9px] px-1.5 py-0.5 rounded bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 border border-sky-500/30 transition-colors"
+                                title="Enviar alerta de prueba a tu chat">
+                            Test
+                        </button>
+                    </div>
+                </div>
+                <div class="text-xs font-bold font-mono mt-1 flex items-center space-x-1.5"
+                     :class="telegramEnabled ? 'text-emerald-400' : 'text-slate-500'">
+                    <span>✈️</span>
+                    <span x-text="telegramConfigured ? '@botmkbingx_bot' : 'Falta Chat ID'"></span>
+                    <span class="text-[9px] font-normal" :class="telegramEnabled ? 'text-emerald-500/80' : 'text-slate-500'" x-text="telegramEnabled ? '' : '(Silenciado)'"></span>
+                </div>
+                <div class="text-[10px] text-slate-400 mt-0.5 font-mono flex items-center justify-between">
+                    <span>15m + 5m Gatillo</span>
+                    <button @click="openSettingsModal('telegram')" class="text-sky-400 hover:underline text-[9px]">Configurar ⚙️</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 1. POSICIONES EN VIVO -->
+        <section class="glass-panel rounded-xl p-4">
+            <div class="flex items-center justify-between mb-3">
+                <div class="flex items-center space-x-2">
+                    <span class="text-xs font-bold text-white uppercase tracking-wider font-mono">Posiciones Abiertas</span>
+                    <span class="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-800 text-slate-300 font-mono"
+                          x-text="positions.length"></span>
+                    <span class="text-[10px] text-slate-500 font-mono" x-text="'[' + (isDemo ? 'DEMO' : 'REAL') + ']'"></span>
+                </div>
+                <button @click="triggerManualRefresh()"
+                        :disabled="isRefreshing"
+                        class="text-xs text-slate-400 hover:text-emerald-400 transition-colors flex items-center space-x-1.5 px-2 py-1 rounded bg-slate-900 border border-slate-800">
+                    <span :class="isRefreshing ? 'inline-block animate-spin text-emerald-400' : ''">↻</span>
+                    <span x-text="isRefreshing ? 'Actualizando...' : 'Actualizar'"></span>
+                </button>
+            </div>
+
+            <div class="space-y-2.5">
+                <template x-for="pos in positions" :key="pos.symbol">
+                    <div class="p-3 rounded-lg bg-slate-900/80 border border-slate-800 flex flex-col md:flex-row md:items-center md:justify-between gap-2.5">
+                        <div class="flex items-center justify-between md:justify-start md:space-x-4">
+                            <div>
+                                <div class="flex items-center space-x-2">
+                                    <span class="text-sm font-bold text-white font-mono" x-text="pos.symbol"></span>
+                                    <span class="text-[10px] px-1.5 py-0.5 rounded font-bold uppercase font-mono"
+                                          :class="pos.side === 'BUY' || pos.side === 'LONG' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' : 'bg-rose-500/10 text-rose-400 border border-rose-500/30'"
+                                          x-text="pos.side"></span>
+                                    <span class="text-[10px] text-slate-400 font-mono" x-text="pos.leverage + 'x'"></span>
+                                </div>
+                                <div class="text-xs text-slate-400 mt-0.5 font-mono">
+                                    Entrada: $<span x-text="pos.entry_price"></span> | Actual: $<span x-text="pos.current_price"></span>
+                                </div>
+                            </div>
+
+                            <div class="text-right md:text-left">
+                                <div class="text-sm font-bold font-mono"
+                                     :class="pos.unrealized_pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'">
+                                    <span x-text="pos.unrealized_pnl >= 0 ? '+' : ''"></span>$<span x-text="formatNumber(pos.unrealized_pnl)"></span>
+                                </div>
+                                <div class="text-[10px] text-slate-500 font-mono">
+                                    Contratos: <span x-text="pos.amount"></span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="flex justify-end">
+                            <button @click="closePosition(pos.symbol)"
+                                    class="w-full md:w-auto px-3 py-1.5 rounded text-xs font-semibold bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 transition-colors">
+                                Cerrar a Mercado
+                            </button>
+                        </div>
+                    </div>
+                </template>
+
+                <template x-if="positions.length === 0">
+                    <div class="py-6 text-center text-slate-500 text-xs font-mono">
+                        No hay posiciones abiertas en este momento.
+                    </div>
+                </template>
+            </div>
+        </section>
+
+        <!-- 2. CONSOLA DE LOGS EN VIVO -->
+        <section class="glass-panel rounded-xl p-4">
+            <div class="flex items-center justify-between mb-2">
+                <div class="flex items-center space-x-2">
+                    <span class="text-xs font-bold text-white uppercase tracking-wider font-mono">Consola del Sistema</span>
+                    <span class="text-[10px] text-emerald-400 font-mono">● LIVE WS</span>
+                </div>
+                <button @click="logs = []" class="text-[10px] text-slate-400 hover:text-slate-200">Limpiar</button>
+            </div>
+            
+            <div class="bg-brand-terminal rounded-lg p-3 font-mono text-[11px] h-40 overflow-y-auto space-y-1 border border-slate-900"
+                 id="terminalLogs">
+                <template x-for="log in logs" :key="log.id">
+                    <div class="leading-relaxed">
+                        <span class="text-slate-500" x-text="log.time"></span>
+                        <span class="font-bold px-1 rounded text-[10px]"
+                              :class="{
+                                  'text-sky-400': log.level === 'INFO',
+                                  'text-amber-400': log.level === 'WARNING',
+                                  'text-rose-400': log.level === 'ERROR'
+                              }"
+                              x-text="'[' + log.level + ']'"></span>
+                        <span class="text-slate-300" x-text="log.message"></span>
+                    </div>
+                </template>
+                <template x-if="logs.length === 0">
+                    <div class="text-slate-600 italic">Esperando actividad del bot...</div>
+                </template>
+            </div>
+        </section>
+
+        <!-- 3. WATCHLIST MULTIACTIVO PLEGABLE -->
+        <section class="glass-panel rounded-xl p-4">
+            <!-- Barra Acordeón de Despliegue -->
+            <div class="flex items-center justify-between cursor-pointer select-none"
+                 @click="showWatchlist = !showWatchlist">
+                <div class="flex items-center space-x-2">
+                    <h3 class="text-xs font-bold text-white uppercase tracking-wider font-mono">Watchlist Multiactivo</h3>
+                    <span class="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-800 text-slate-300 font-mono"
+                          x-text="watchlist.length"></span>
+                    <span class="text-[10px] text-slate-500 font-mono hidden sm:inline">(Cripto, Índices, Acciones)</span>
+                </div>
+
+                <div class="flex items-center space-x-2">
+                    <button type="button"
+                            class="text-[10px] font-mono font-bold px-2.5 py-1 rounded bg-slate-800/90 hover:bg-slate-700 text-sky-400 border border-slate-700 transition-all flex items-center space-x-1 shadow-sm">
+                        <span x-text="showWatchlist ? 'Ocultar Lista ▲' : 'Desplegar Lista (' + watchlist.length + ') ▼'"></span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Contenido Plegable de la Watchlist -->
+            <div x-show="showWatchlist"
+                 x-transition:enter="transition ease-out duration-200"
+                 x-transition:enter-start="opacity-0 -translate-y-2"
+                 x-transition:enter-end="opacity-100 translate-y-0"
+                 x-transition:leave="transition ease-in duration-150"
+                 x-transition:leave-start="opacity-100 translate-y-0"
+                 x-transition:leave-end="opacity-0 -translate-y-2"
+                 class="mt-3 pt-3 border-t border-slate-800/80 space-y-3">
+
+                <!-- Buscador para agregar tickers -->
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                    <p class="text-[10px] text-slate-400">Opera manualmente o añade activos al radar autónomo</p>
+                    <div class="flex items-center space-x-2">
+                        <input type="text"
+                               x-model="newTickerInput"
+                               @keyup.enter="addNewTicker()"
+                               placeholder="Ej: DOGE, ADA, EUR/USD, DAX..."
+                               class="bg-slate-900/90 border border-slate-700/90 rounded px-2.5 py-1 text-xs font-mono text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 w-full sm:w-52 uppercase">
+                        <button @click="addNewTicker()"
+                                :disabled="isAddingTicker"
+                                class="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-bold font-mono transition-colors flex items-center space-x-1 whitespace-nowrap">
+                            <span>+</span>
+                            <span x-text="isAddingTicker ? 'Buscando...' : 'Agregar'"></span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Selector de Modo de Escaneo -->
+                <div class="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-lg bg-slate-900/80 border border-slate-800">
+                    <div class="flex items-center space-x-2">
+                        <span class="text-[10px] text-slate-400 font-mono uppercase tracking-wider font-bold">Rango Auto-Scanner:</span>
+                        <div class="inline-flex rounded-md p-0.5 bg-slate-950 border border-slate-800">
+                            <button @click="setScannerMode('watchlist')"
+                                    class="px-2.5 py-1 rounded text-[10px] font-mono transition-all flex items-center space-x-1"
+                                    :class="scannerMode === 'watchlist' ? 'bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30' : 'text-slate-400 hover:text-white'">
+                                <span>📋</span>
+                                <span>Solo Mi Lista (<span x-text="watchlist.length"></span>)</span>
+                            </button>
+                            <button @click="setScannerMode('full_market')"
+                                    class="px-2.5 py-1 rounded text-[10px] font-mono transition-all flex items-center space-x-1"
+                                    :class="scannerMode === 'full_market' ? 'bg-sky-500/20 text-sky-300 font-bold border border-sky-500/30' : 'text-slate-400 hover:text-white'">
+                                <span>🌐</span>
+                                <span>Todo BingX (+40 Top Vol)</span>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="text-[10px] text-slate-400 font-mono flex items-center space-x-1.5">
+                        <span class="w-1.5 h-1.5 rounded-full" :class="scannerActive ? 'bg-sky-400 animate-pulse' : 'bg-slate-600'"></span>
+                        <span x-text="scannerMode === 'watchlist' ? 'Modo: Mi Watchlist' : 'Modo: Todo BingX'"></span>
+                    </div>
+                </div>
+
+                <!-- Filtros de categoría -->
+                <div class="flex items-center space-x-1.5 overflow-x-auto pb-1 text-[11px] font-mono border-b border-slate-800/60">
+                    <button @click="categoryFilter = 'all'"
+                            class="px-2.5 py-1 rounded transition-colors"
+                            :class="categoryFilter === 'all' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-bold' : 'text-slate-400 hover:text-slate-200'">
+                        Todos (<span x-text="watchlist.length"></span>)
+                    </button>
+                    <button @click="categoryFilter = 'index'"
+                            class="px-2.5 py-1 rounded transition-colors"
+                            :class="categoryFilter === 'index' ? 'bg-sky-500/20 text-sky-300 border border-sky-500/30 font-bold' : 'text-slate-400 hover:text-slate-200'">
+                        Índices
+                    </button>
+                    <button @click="categoryFilter = 'crypto'"
+                            class="px-2.5 py-1 rounded transition-colors"
+                            :class="categoryFilter === 'crypto' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30 font-bold' : 'text-slate-400 hover:text-slate-200'">
+                        Criptomonedas
+                    </button>
+                    <button @click="categoryFilter = 'commodities_stocks'"
+                            class="px-2.5 py-1 rounded transition-colors"
+                            :class="categoryFilter === 'commodities_stocks' ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30 font-bold' : 'text-slate-400 hover:text-slate-200'">
+                        Oro / Acciones
+                    </button>
+                </div>
+
+                <!-- Grid de Activos -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+                    <template x-for="item in filteredWatchlist" :key="item.ticker">
+                        <div class="p-3 rounded-lg bg-slate-900/80 border border-slate-800/80 hover:border-slate-700 transition-all flex items-center justify-between group relative">
+                            <div>
+                                <div class="flex items-center space-x-2">
+                                    <span class="text-sm font-bold font-mono text-white" x-text="item.ticker"></span>
+                                    <span class="text-[10px] px-1.5 py-0.5 rounded font-mono font-bold"
+                                          :class="item.category === 'index' ? 'bg-sky-500/15 text-sky-300 border border-sky-500/30' : (item.category.includes('crypto') ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30' : 'bg-purple-500/15 text-purple-300 border border-purple-500/30')"
+                                          x-text="item.leverage + 'x'"></span>
+                                </div>
+                                <div class="text-[11px] text-slate-400" x-text="item.name"></div>
+                                <div class="text-xs font-mono font-bold text-slate-200 mt-1">
+                                    $<span x-text="item.price > 0 ? item.price : 'Consultando...'"></span>
+                                </div>
+                            </div>
+
+                            <!-- Botones de Acción y Eliminar -->
+                            <div class="flex items-center space-x-1.5">
+                                <div class="flex flex-col space-y-1">
+                                    <button @click="openQuickOrder(item.ticker, 'BUY', item.leverage)"
+                                            class="px-2 py-1 rounded text-[10px] font-bold font-mono bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 transition-colors">
+                                        + COMPRA
+                                    </button>
+                                    <button @click="openQuickOrder(item.ticker, 'SELL', item.leverage)"
+                                            class="px-2 py-1 rounded text-[10px] font-bold font-mono bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 transition-colors">
+                                        - VENTA
+                                    </button>
+                                </div>
+                                <button @click="removeTicker(item.ticker)"
+                                        title="Quitar de la lista"
+                                        class="text-slate-600 hover:text-rose-400 text-xs px-1 transition-colors">
+                                ✕
+                                </button>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+        </section>
+
+        <!-- 4. HISTORIAL RECIENTE DE OPERACIONES -->
+        <section class="glass-panel rounded-xl p-4">
+            <h3 class="text-xs font-bold text-white uppercase tracking-wider font-mono mb-3">Historial de Operaciones</h3>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-xs font-mono">
+                    <thead class="text-[10px] text-slate-400 uppercase border-b border-brand-border">
+                        <tr>
+                            <th class="pb-2">Fecha</th>
+                            <th class="pb-2">Activo</th>
+                            <th class="pb-2">Lado</th>
+                            <th class="pb-2">Entrada</th>
+                            <th class="pb-2">Salida</th>
+                            <th class="pb-2 text-right">PnL Neto</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-800/60">
+                        <template x-for="trade in trades" :key="trade.id">
+                            <tr>
+                                <td class="py-2.5 text-slate-400" x-text="trade.opened_at.slice(5, 16)"></td>
+                                <td class="py-2.5 font-bold text-white" x-text="trade.symbol"></td>
+                                <td class="py-2.5">
+                                    <span class="px-1 py-0.5 rounded text-[10px] font-bold"
+                                          :class="trade.side === 'BUY' ? 'text-emerald-400 bg-emerald-500/10' : 'text-rose-400 bg-rose-500/10'"
+                                          x-text="trade.side"></span>
+                                </td>
+                                <td class="py-2.5 text-slate-300">$<span x-text="trade.entry_price"></span></td>
+                                <td class="py-2.5 text-slate-300">$<span x-text="trade.exit_price || '-'"></span></td>
+                                <td class="py-2.5 text-right font-bold"
+                                    :class="trade.pnl_usd >= 0 ? 'text-emerald-400' : 'text-rose-400'">
+                                    <span x-text="trade.pnl_usd >= 0 ? '+' : ''"></span>$<span x-text="formatNumber(trade.pnl_usd)"></span>
+                                </td>
+                            </tr>
+                        </template>
+                        <template x-if="trades.length === 0">
+                            <tr>
+                                <td colspan="6" class="py-4 text-center text-slate-500">Sin operaciones cerradas aún.</td>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+
+    <!-- MODAL FINTECH: CONFIGURACIÓN INTEGRAL DEL BOT -->
+    <div x-show="showSettingsModal"
+         x-transition:enter="transition ease-out duration-200"
+         x-transition:enter-start="opacity-0"
+         x-transition:enter-end="opacity-100"
+         x-transition:leave="transition ease-in duration-150"
+         x-transition:leave-start="opacity-100"
+         x-transition:leave-end="opacity-0"
+         class="fixed inset-0 z-50 overflow-y-auto bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4"
+         @keydown.escape.window="showSettingsModal = false"
+         x-cloak>
+
+        <div class="glass-panel bg-slate-900/95 border border-slate-700/80 rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+             @click.away="showSettingsModal = false">
+            
+            <!-- Encabezado del Modal -->
+            <div class="px-5 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/60">
+                <div class="flex items-center space-x-2.5">
+                    <div class="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 font-bold text-sm">
+                        ⚙️
+                    </div>
+                    <div>
+                        <h3 class="text-sm font-bold text-white uppercase tracking-wider font-mono">Configuración Integral</h3>
+                        <p class="text-[11px] text-slate-400">Personaliza cuentas, APIs de BingX, alertas y gestión de riesgo</p>
+                    </div>
+                </div>
+                <button @click="showSettingsModal = false"
+                        class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors text-lg leading-none">
+                    ✕
+                </button>
+            </div>
+
+            <!-- Barra de Pestañas -->
+            <div class="flex border-b border-slate-800 bg-slate-950/40 text-xs font-mono overflow-x-auto">
+                <button @click="settingsTab = 'bingx'"
+                        class="px-4 py-2.5 border-b-2 font-medium transition-all flex items-center space-x-1.5 whitespace-nowrap"
+                        :class="settingsTab === 'bingx' ? 'border-emerald-500 text-emerald-400 bg-emerald-500/5 font-bold' : 'border-transparent text-slate-400 hover:text-slate-200'">
+                    <span>🔑</span>
+                    <span>BingX API & Cuenta</span>
+                </button>
+                <button @click="settingsTab = 'telegram'"
+                        class="px-4 py-2.5 border-b-2 font-medium transition-all flex items-center space-x-1.5 whitespace-nowrap"
+                        :class="settingsTab === 'telegram' ? 'border-emerald-500 text-emerald-400 bg-emerald-500/5 font-bold' : 'border-transparent text-slate-400 hover:text-slate-200'">
+                    <span>📱</span>
+                    <span>Notificaciones</span>
+                </button>
+                <button @click="settingsTab = 'risk'"
+                        class="px-4 py-2.5 border-b-2 font-medium transition-all flex items-center space-x-1.5 whitespace-nowrap"
+                        :class="settingsTab === 'risk' ? 'border-emerald-500 text-emerald-400 bg-emerald-500/5 font-bold' : 'border-transparent text-slate-400 hover:text-slate-200'">
+                    <span>🛡️</span>
+                    <span>Riesgo & Concurrencia</span>
+                </button>
+                <button @click="settingsTab = 'leverage'"
+                        class="px-4 py-2.5 border-b-2 font-medium transition-all flex items-center space-x-1.5 whitespace-nowrap"
+                        :class="settingsTab === 'leverage' ? 'border-emerald-500 text-emerald-400 bg-emerald-500/5 font-bold' : 'border-transparent text-slate-400 hover:text-slate-200'">
+                    <span>⚡</span>
+                    <span>Apalancamiento</span>
+                </button>
+            </div>
+
+            <!-- Cuerpo del Formulario con Scroll -->
+            <div class="p-5 overflow-y-auto space-y-4 text-xs font-sans">
+
+                <!-- PESTAÑA 1: BINGX API & CUENTA -->
+                <div x-show="settingsTab === 'bingx'" class="space-y-4">
+                    <div class="p-3 rounded-lg bg-emerald-950/20 border border-emerald-500/30 text-slate-300 text-[11px] leading-relaxed">
+                        <span class="text-emerald-400 font-bold">ℹ️ Configuración para otra persona o cuenta:</span>
+                        Puedes cambiar las credenciales de BingX y el entorno en cualquier momento. El bot sincroniza automáticamente el Modo Cobertura (Hedge Mode) y las órdenes protegidas.
+                    </div>
+
+                    <!-- Entorno: Demo vs Real -->
+                    <div>
+                        <label class="block text-slate-300 font-medium mb-1.5 font-mono uppercase text-[11px]">Entorno Operativo:</label>
+                        <div class="grid grid-cols-2 gap-3">
+                            <button type="button"
+                                    @click="configForm.is_demo = true"
+                                    class="p-3 rounded-xl border text-left transition-all flex items-center space-x-3"
+                                    :class="configForm.is_demo ? 'bg-amber-500/15 border-amber-500/60 text-amber-300 font-bold' : 'bg-slate-900/80 border-slate-800 text-slate-400 hover:border-slate-700'">
+                                <span class="text-xl">🟡</span>
+                                <div>
+                                    <div class="text-xs">DEMO (VST)</div>
+                                    <div class="text-[10px] font-normal opacity-80">Pruebas sin riesgo real</div>
+                                </div>
+                            </button>
+                            <button type="button"
+                                    @click="configForm.is_demo = false"
+                                    class="p-3 rounded-xl border text-left transition-all flex items-center space-x-3"
+                                    :class="!configForm.is_demo ? 'bg-rose-500/15 border-rose-500/60 text-rose-300 font-bold' : 'bg-slate-900/80 border-slate-800 text-slate-400 hover:border-slate-700'">
+                                <span class="text-xl">🔴</span>
+                                <div>
+                                    <div class="text-xs">REAL (USDT)</div>
+                                    <div class="text-[10px] font-normal opacity-80">Fondos reales en BingX</div>
+                                </div>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- BingX API Key -->
+                    <div>
+                        <label class="block text-slate-300 font-medium mb-1 font-mono uppercase text-[11px]">BingX API Key:</label>
+                        <input type="text"
+                               x-model="configForm.bingx_api_key"
+                               placeholder="Pega la API Key de BingX..."
+                               class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs font-mono text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500">
+                    </div>
+
+                    <!-- BingX Secret Key -->
+                    <div>
+                        <div class="flex items-center justify-between mb-1">
+                            <label class="block text-slate-300 font-medium font-mono uppercase text-[11px]">BingX Secret Key:</label>
+                            <button type="button" @click="showSecretKey = !showSecretKey" class="text-[10px] text-sky-400 hover:underline">
+                                <span x-text="showSecretKey ? 'Ocultar' : 'Mostrar'"></span>
+                            </button>
+                        </div>
+                        <input :type="showSecretKey ? 'text' : 'password'"
+                               x-model="configForm.bingx_secret_key"
+                               placeholder="Pega la Secret Key de BingX..."
+                               class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs font-mono text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500">
+                    </div>
+
+                    <!-- Webhook Secret (Opcional) -->
+                    <div>
+                        <label class="block text-slate-400 font-medium mb-1 font-mono uppercase text-[11px]">Webhook Secret (TradingView):</label>
+                        <input type="text"
+                               x-model="configForm.webhook_secret"
+                               placeholder="Token secreto opcional para señales externas"
+                               class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs font-mono text-slate-300 placeholder-slate-600 focus:outline-none focus:border-emerald-500">
+                    </div>
+                </div>
+
+                <!-- PESTAÑA 2: NOTIFICACIONES (TELEGRAM & WHATSAPP) -->
+                <div x-show="settingsTab === 'telegram'" class="space-y-4">
+                    <!-- Control General de Notificaciones Telegram -->
+                    <div class="p-3.5 rounded-xl bg-slate-950/80 border border-slate-800 flex items-center justify-between">
+                        <div>
+                            <div class="text-xs font-bold text-white font-mono flex items-center space-x-1.5">
+                                <span>✈️</span>
+                                <span>Alertas de Telegram</span>
+                            </div>
+                            <div class="text-[10px] text-slate-400 mt-0.5">
+                                Envío de mensajes al abrir y cerrar posiciones con PnL
+                            </div>
+                        </div>
+                        <!-- Switch ON/OFF -->
+                        <button type="button"
+                                @click="configForm.telegram_enabled = !configForm.telegram_enabled"
+                                class="relative inline-flex h-7 w-12 items-center rounded-full transition-colors focus:outline-none"
+                                :class="configForm.telegram_enabled ? 'bg-emerald-600' : 'bg-slate-700'">
+                            <span class="inline-block h-5 w-5 transform rounded-full bg-white transition-transform shadow-md text-[9px] font-bold font-mono flex items-center justify-center"
+                                  :class="configForm.telegram_enabled ? 'translate-x-6 text-emerald-600' : 'translate-x-1 text-slate-600'"
+                                  x-text="configForm.telegram_enabled ? 'ON' : 'OFF'"></span>
+                        </button>
+                    </div>
+
+                    <!-- Telegram Bot Token -->
+                    <div>
+                        <label class="block text-slate-300 font-medium mb-1 font-mono uppercase text-[11px]">Telegram Bot Token:</label>
+                        <input type="text"
+                               x-model="configForm.telegram_bot_token"
+                               placeholder="Ej: 8546482399:AAGG2Gg7jdN8NU1IJ8rfYGZfqI1urVO2SBw"
+                               class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs font-mono text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500">
+                        <span class="text-[10px] text-slate-500">Obtenlo en Telegram enviando /newbot a @BotFather</span>
+                    </div>
+
+                    <!-- Telegram Chat ID -->
+                    <div>
+                        <label class="block text-slate-300 font-medium mb-1 font-mono uppercase text-[11px]">Telegram Chat ID:</label>
+                        <div class="flex items-center space-x-2">
+                            <input type="text"
+                                   x-model="configForm.telegram_chat_id"
+                                   placeholder="Ej: 8781245730"
+                                   class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs font-mono text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500">
+                            <button type="button"
+                                    @click="testTelegramFromModal()"
+                                    class="px-3 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-mono text-xs font-bold transition-colors whitespace-nowrap shadow-sm">
+                                🔔 Probar
+                            </button>
+                        </div>
+                        <span class="text-[10px] text-slate-500">Obtenlo escribiendo /start a tu bot y consultando a @userinfobot</span>
+                    </div>
+
+                    <!-- Separador WhatsApp -->
+                    <div class="pt-2 border-t border-slate-800">
+                        <div class="flex items-center justify-between mb-2">
+                            <div class="text-xs font-bold text-white font-mono flex items-center space-x-1.5">
+                                <span>💬</span>
+                                <span>WhatsApp (CallMeBot)</span>
+                            </div>
+                            <button type="button"
+                                    @click="configForm.whatsapp_enabled = !configForm.whatsapp_enabled"
+                                    class="text-[10px] font-mono px-2 py-0.5 rounded border"
+                                    :class="configForm.whatsapp_enabled ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' : 'bg-slate-800 text-slate-500 border-slate-700'">
+                                <span x-text="configForm.whatsapp_enabled ? 'HABILITADO' : 'DESHABILITADO'"></span>
+                            </button>
+                        </div>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-slate-400 text-[10px] uppercase font-mono mb-1">Teléfono WhatsApp (+549...):</label>
+                                <input type="text"
+                                       x-model="configForm.whatsapp_phone"
+                                       placeholder="+5493462698956"
+                                       class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs font-mono text-slate-200">
+                            </div>
+                            <div>
+                                <label class="block text-slate-400 text-[10px] uppercase font-mono mb-1">CallMeBot API Key (Opcional):</label>
+                                <input type="text"
+                                       x-model="configForm.whatsapp_apikey"
+                                       placeholder="Clave de CallMeBot"
+                                       class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs font-mono text-slate-200">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- PESTAÑA 3: RIESGO & CAPITAL & CONCURRENCIA -->
+                <div x-show="settingsTab === 'risk'" class="space-y-4">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <!-- Margen por Operación -->
+                        <div>
+                            <label class="block text-slate-300 font-medium mb-1 font-mono uppercase text-[11px]">% Margen por Operación:</label>
+                            <div class="relative">
+                                <input type="number"
+                                       step="0.5"
+                                       min="1"
+                                       max="100"
+                                       x-model="configForm.position_balance_pct"
+                                       class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-emerald-500">
+                                <span class="absolute right-3 top-2 text-slate-500 font-mono">% libre</span>
+                            </div>
+                            <span class="text-[10px] text-slate-500">Por defecto: 10% del balance libre por trade</span>
+                        </div>
+
+                        <!-- Límite de Operaciones Simultáneas -->
+                        <div>
+                            <label class="block text-slate-300 font-medium mb-1 font-mono uppercase text-[11px]">Máximas Simultáneas:</label>
+                            <input type="number"
+                                   min="1"
+                                   max="10"
+                                   x-model="configForm.max_simultaneous_positions"
+                                   class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-emerald-500">
+                            <span class="text-[10px] text-slate-500">Evita sobre-apalancamiento (Recomendado: 2 o 3)</span>
+                        </div>
+
+                        <!-- Ratio Riesgo / Beneficio -->
+                        <div>
+                            <label class="block text-slate-300 font-medium mb-1 font-mono uppercase text-[11px]">Ratio Riesgo / Beneficio:</label>
+                            <input type="number"
+                                   step="0.1"
+                                   min="1.0"
+                                   max="5.0"
+                                   x-model="configForm.default_risk_ratio"
+                                   class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-emerald-500">
+                            <span class="text-[10px] text-slate-500">Take Profit: 1.5x a 2.0x el Stop Loss</span>
+                        </div>
+
+                        <!-- Stop Loss Técnico Base -->
+                        <div>
+                            <label class="block text-slate-300 font-medium mb-1 font-mono uppercase text-[11px]">Stop Loss Técnico Base (%):</label>
+                            <div class="relative">
+                                <input type="number"
+                                       step="0.1"
+                                       min="0.2"
+                                       max="10.0"
+                                       x-model="configForm.default_sl_pct"
+                                       class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-emerald-500">
+                                <span class="absolute right-3 top-2 text-slate-500 font-mono">% precio</span>
+                            </div>
+                            <span class="text-[10px] text-slate-500">Distancia técnica de seguridad de salida</span>
+                        </div>
+
+                        <!-- Pérdidas Consecutivas Máximas -->
+                        <div>
+                            <label class="block text-slate-300 font-medium mb-1 font-mono uppercase text-[11px]">Pérdidas Consecutivas (Freno):</label>
+                            <input type="number"
+                                   min="1"
+                                   max="10"
+                                   x-model="configForm.max_consecutive_losses"
+                                   class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-emerald-500">
+                            <span class="text-[10px] text-slate-500">Dispara Circuit Breaker automático</span>
+                        </div>
+
+                        <!-- Drawdown Diario Máximo -->
+                        <div>
+                            <label class="block text-slate-300 font-medium mb-1 font-mono uppercase text-[11px]">Drawdown Diario Máximo (%):</label>
+                            <div class="relative">
+                                <input type="number"
+                                       step="0.5"
+                                       min="1.0"
+                                       max="50.0"
+                                       x-model="configForm.max_daily_drawdown_pct"
+                                       class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-emerald-500">
+                                <span class="absolute right-3 top-2 text-slate-500 font-mono">% diario</span>
+                            </div>
+                            <span class="text-[10px] text-slate-500">Frena el bot si la caída de capital supera este %</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- PESTAÑA 4: APALANCAMIENTO ADAPTATIVO & ANTILIQUIDACIÓN -->
+                <div x-show="settingsTab === 'leverage'" class="space-y-4">
+                    <!-- Selector de Modo de Apalancamiento -->
+                    <div class="p-3.5 rounded-xl bg-slate-950/80 border border-slate-800 space-y-3">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <div class="text-xs font-bold text-white font-mono flex items-center space-x-1.5">
+                                    <span>🛡️</span>
+                                    <span>Cálculo Automático Antiliquidación</span>
+                                </div>
+                                <div class="text-[10px] text-slate-400 mt-0.5">
+                                    Calcula el apalancamiento seguro en base al Stop Loss para que la liquidación nunca esté antes del SL
+                                </div>
+                            </div>
+                            <!-- Switch ON/OFF Auto Leverage -->
+                            <button type="button"
+                                    @click="configForm.auto_leverage_by_sl = !configForm.auto_leverage_by_sl"
+                                    class="relative inline-flex h-7 w-12 items-center rounded-full transition-colors focus:outline-none"
+                                    :class="configForm.auto_leverage_by_sl ? 'bg-emerald-600' : 'bg-slate-700'">
+                                <span class="inline-block h-5 w-5 transform rounded-full bg-white transition-transform shadow-md text-[9px] font-bold font-mono flex items-center justify-center"
+                                      :class="configForm.auto_leverage_by_sl ? 'translate-x-6 text-emerald-600' : 'translate-x-1 text-slate-600'"
+                                      x-text="configForm.auto_leverage_by_sl ? 'ON' : 'OFF'"></span>
+                            </button>
+                        </div>
+
+                        <!-- Detalle cuando el modo automático está activo -->
+                        <div x-show="configForm.auto_leverage_by_sl" class="pt-3 border-t border-slate-800/80 space-y-3">
+                            <div class="p-2.5 rounded-lg bg-emerald-950/30 border border-emerald-500/30 text-[11px] text-slate-300 leading-relaxed">
+                                <span class="text-emerald-400 font-bold">✓ Garantía Antiliquidación:</span>
+                                El bot calcula <code class="text-emerald-300 font-mono">Apalancamiento = 100 / (SL% × Factor)</code>.
+                                De este modo, el precio de liquidación queda siempre al <strong>doble (200%)</strong> de distancia de tu Stop Loss. 
+                                <span class="text-white font-semibold">El Stop Loss siempre cerrará la posición protegiendo tu capital antes de cualquier riesgo de liquidación.</span>
+                            </div>
+
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div>
+                                    <label class="block text-slate-300 text-[10px] uppercase font-mono mb-1">Factor de Seguridad (Buffer):</label>
+                                    <div class="relative">
+                                        <input type="number" step="0.1" min="1.2" max="4.0" x-model="configForm.safety_margin_factor"
+                                               class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-xs font-mono text-white">
+                                        <span class="absolute right-2.5 top-1.5 text-slate-500 font-mono text-[10px]">x distancia</span>
+                                    </div>
+                                    <span class="text-[9px] text-slate-500">Recomendado: 2.0x (Liquidación al doble de distancia del SL)</span>
+                                </div>
+                                <div>
+                                    <label class="block text-slate-300 text-[10px] uppercase font-mono mb-1">Tope Máximo de Apalancamiento:</label>
+                                    <div class="relative">
+                                        <input type="number" min="5" max="50" x-model="configForm.max_allowed_leverage"
+                                               class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-xs font-mono text-white">
+                                        <span class="absolute right-2.5 top-1.5 text-slate-500 font-mono text-[10px]">x max</span>
+                                    </div>
+                                    <span class="text-[9px] text-slate-500">Límite superior prudencial (Recomendado: 35x o 40x)</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Tabla de Ajuste Manual por Categoría (Visible si se apaga el modo automático o como referencia) -->
+                    <div :class="configForm.auto_leverage_by_sl ? 'opacity-60 pointer-events-none' : ''" class="space-y-2.5 transition-opacity">
+                        <div class="flex items-center justify-between">
+                            <span class="text-[11px] font-mono font-bold uppercase text-slate-300">Apalancamiento Fijo por Categoría:</span>
+                            <span x-show="configForm.auto_leverage_by_sl" class="text-[9px] text-emerald-400 font-mono">(Inactivo: Controlado por Modo Automático)</span>
+                        </div>
+
+                        <div class="space-y-2">
+                            <div class="flex items-center justify-between p-2 rounded-lg bg-slate-950/60 border border-slate-800">
+                                <div>
+                                    <span class="font-bold text-white font-mono text-xs">Cripto Mayores (BTC, ETH)</span>
+                                    <div class="text-[10px] text-slate-500">Menor volatilidad relativa</div>
+                                </div>
+                                <div class="flex items-center space-x-1.5">
+                                    <input type="number" min="1" max="50" x-model="configForm.leverage_crypto_majors"
+                                           class="w-16 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs font-mono text-white text-center">
+                                    <span class="font-mono text-xs text-slate-400">x</span>
+                                </div>
+                            </div>
+
+                            <div class="flex items-center justify-between p-2 rounded-lg bg-slate-950/60 border border-slate-800">
+                                <div>
+                                    <span class="font-bold text-white font-mono text-xs">Altcoins (SOL, DOGE, ADA...)</span>
+                                    <div class="text-[10px] text-slate-500">Alta volatilidad, apalancamiento moderado</div>
+                                </div>
+                                <div class="flex items-center space-x-1.5">
+                                    <input type="number" min="1" max="30" x-model="configForm.leverage_crypto_alts"
+                                           class="w-16 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs font-mono text-white text-center">
+                                    <span class="font-mono text-xs text-slate-400">x</span>
+                                </div>
+                            </div>
+
+                            <div class="flex items-center justify-between p-2 rounded-lg bg-slate-950/60 border border-slate-800">
+                                <div>
+                                    <span class="font-bold text-white font-mono text-xs">Índices Bursátiles (SP500, NASDAQ, DOW)</span>
+                                    <div class="text-[10px] text-slate-500">Baja volatilidad porcentual en BingX</div>
+                                </div>
+                                <div class="flex items-center space-x-1.5">
+                                    <input type="number" min="1" max="100" x-model="configForm.leverage_indices"
+                                           class="w-16 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs font-mono text-white text-center">
+                                    <span class="font-mono text-xs text-slate-400">x</span>
+                                </div>
+                            </div>
+
+                            <div class="flex items-center justify-between p-2 rounded-lg bg-slate-950/60 border border-slate-800">
+                                <div>
+                                    <span class="font-bold text-white font-mono text-xs">Commodities (Oro, Petróleo)</span>
+                                    <div class="text-[10px] text-slate-500">Materias primas globales</div>
+                                </div>
+                                <div class="flex items-center space-x-1.5">
+                                    <input type="number" min="1" max="50" x-model="configForm.leverage_commodities"
+                                           class="w-16 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs font-mono text-white text-center">
+                                    <span class="font-mono text-xs text-slate-400">x</span>
+                                </div>
+                            </div>
+
+                            <div class="flex items-center justify-between p-2 rounded-lg bg-slate-950/60 border border-slate-800">
+                                <div>
+                                    <span class="font-bold text-white font-mono text-xs">Acciones / Stocks (TSLA, NVDA...)</span>
+                                    <div class="text-[10px] text-slate-500">Acciones líderes de Wall Street</div>
+                                </div>
+                                <div class="flex items-center space-x-1.5">
+                                    <input type="number" min="1" max="20" x-model="configForm.leverage_stocks"
+                                           class="w-16 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs font-mono text-white text-center">
+                                    <span class="font-mono text-xs text-slate-400">x</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- Pie del Modal con Feedback y Botones -->
+            <div class="px-5 py-3.5 border-t border-slate-800 bg-slate-950/70 flex flex-col sm:flex-row items-center justify-between gap-3">
+                <div class="text-xs">
+                    <template x-if="saveSuccessMsg">
+                        <div class="text-emerald-400 font-mono font-bold flex items-center space-x-1.5 animate-pulse">
+                            <span>✅</span>
+                            <span x-text="saveSuccessMsg"></span>
+                        </div>
+                    </template>
+                </div>
+                <div class="flex items-center space-x-2.5 w-full sm:w-auto justify-end">
+                    <button type="button"
+                            @click="showSettingsModal = false"
+                            class="px-4 py-2 rounded-lg border border-slate-700 hover:bg-slate-800 text-slate-300 text-xs font-mono transition-colors">
+                        Cerrar
+                    </button>
+                    <button type="button"
+                            @click="saveConfig()"
+                            :disabled="isSavingSettings"
+                            class="px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-mono font-bold transition-all shadow-md flex items-center space-x-1.5 disabled:opacity-50">
+                        <span x-show="isSavingSettings" class="animate-spin">↻</span>
+                        <span x-text="isSavingSettings ? 'Guardando...' : '💾 Guardar y Aplicar'"></span>
+                    </button>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Script de Alpine.js -->
+    <script>
+        function tradingDashboard() {
+            return {
+                isBotActive: true,
+                scannerActive: false,
+                scannerMode: 'watchlist', // 'watchlist' o 'full_market'
+                isDemo: true,
+                isLoading: false,
+                isRefreshing: false,
+                isAddingTicker: false,
+                newTickerInput: '',
+                telegramConfigured: false,
+                telegramEnabled: true,
+                showWatchlist: false,
+                showSettingsModal: false,
+                settingsTab: 'bingx',
+                isSavingSettings: false,
+                saveSuccessMsg: '',
+                showSecretKey: false,
+                configForm: {
+                    bingx_api_key: '',
+                    bingx_secret_key: '',
+                    is_demo: true,
+                    position_balance_pct: 10.0,
+                    default_risk_ratio: 1.5,
+                    default_sl_pct: 1.5,
+                    max_simultaneous_positions: 3,
+                    max_consecutive_losses: 3,
+                    max_daily_drawdown_pct: 5.0,
+                    leverage_crypto_majors: 15,
+                    leverage_crypto_alts: 8,
+                    leverage_indices: 40,
+                    leverage_commodities: 20,
+                    leverage_stocks: 10,
+                    auto_leverage_by_sl: true,
+                    safety_margin_factor: 2.0,
+                    max_allowed_leverage: 35,
+                    telegram_enabled: true,
+                    telegram_bot_token: '',
+                    telegram_chat_id: '',
+                    whatsapp_enabled: true,
+                    whatsapp_phone: '',
+                    whatsapp_apikey: '',
+                    webhook_secret: ''
+                },
+                circuitBreakerTriggered: false,
+                circuitBreakerReason: '',
+                categoryFilter: 'all',
+                balance: { total: 0, free: 0, used: 0, asset: 'USDT' },
+                stats: { total_trades: 0, wins: 0, losses: 0, win_rate: 0, total_pnl: 0, daily_pnl: 0 },
+                positions: [],
+                trades: [],
+                watchlist: [],
+                logs: [],
+                ws: null,
+
+                initApp() {
+                    this.refreshData();
+                    this.loadWatchlist();
+                    this.loadRecentLogs();
+                    this.connectWebSocket();
+
+                    setInterval(() => {
+                        this.refreshData();
+                        this.loadWatchlist();
+                        this.loadRecentLogs();
+                    }, 4000);
+                },
+
+                get filteredWatchlist() {
+                    if (this.categoryFilter === 'all') return this.watchlist;
+                    if (this.categoryFilter === 'index') return this.watchlist.filter(w => w.category === 'index');
+                    if (this.categoryFilter === 'crypto') return this.watchlist.filter(w => w.category.includes('crypto'));
+                    if (this.categoryFilter === 'commodities_stocks') return this.watchlist.filter(w => w.category === 'commodity' || w.category === 'stock');
+                    return this.watchlist;
+                },
+
+                formatNumber(val) {
+                    const num = Number(val) || 0;
+                    return num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                },
+
+                async refreshData() {
+                    try {
+                        const res = await fetch('/api/stats');
+                        if (res.ok) {
+                            const data = await res.json();
+                            this.isBotActive = data.state.is_active;
+                            this.circuitBreakerTriggered = data.state.circuit_breaker_triggered;
+                            this.circuitBreakerReason = data.state.circuit_breaker_reason;
+                            this.balance = data.balance;
+                            this.stats = data.stats;
+                            this.positions = data.positions;
+                            this.trades = data.trades;
+                            this.isDemo = data.config.is_demo;
+                            this.scannerActive = data.scanner_active;
+                            if (data.scanner_mode) this.scannerMode = data.scanner_mode;
+                            if (data.config) {
+                                this.telegramConfigured = data.config.telegram_configured;
+                                if (data.config.telegram_enabled !== undefined) {
+                                    this.telegramEnabled = data.config.telegram_enabled;
+                                }
+                            }
+                        }
+                    } catch (e) {}
+                },
+
+                async loadWatchlist() {
+                    try {
+                        const res = await fetch('/api/watchlist');
+                        if (res.ok) {
+                            this.watchlist = await res.json();
+                        }
+                    } catch (e) {}
+                },
+
+                async loadRecentLogs() {
+                    try {
+                        const res = await fetch('/api/logs?limit=40');
+                        if (res.ok) {
+                            const newLogs = await res.json();
+                            if (newLogs && newLogs.length > 0) {
+                                this.logs = newLogs;
+                                this.$nextTick(() => {
+                                    const el = document.getElementById('terminalLogs');
+                                    if (el) el.scrollTop = el.scrollHeight;
+                                });
+                            }
+                        }
+                    } catch (e) {}
+                },
+
+                async triggerManualRefresh() {
+                    this.isRefreshing = true;
+                    try {
+                        await Promise.all([
+                            this.refreshData(),
+                            this.loadWatchlist(),
+                            this.loadRecentLogs()
+                        ]);
+                    } finally {
+                        setTimeout(() => { this.isRefreshing = false; }, 600);
+                    }
+                },
+
+                async addNewTicker() {
+                    if (!this.newTickerInput || !this.newTickerInput.trim()) return;
+                    const ticker = this.newTickerInput.trim().toUpperCase();
+                    this.isAddingTicker = true;
+                    try {
+                        const res = await fetch('/api/watchlist/add', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ symbol: ticker })
+                        });
+                        const data = await res.json();
+                        if (res.ok) {
+                            this.newTickerInput = '';
+                            this.loadWatchlist();
+                            alert(`¡Ticker ${data.ticker} (${data.name}) agregado con éxito a tu Watchlist!`);
+                        } else {
+                            alert(`Error: ${data.detail || 'No se pudo agregar'}`);
+                        }
+                    } catch (e) {
+                        alert("Error de conexión al agregar ticker.");
+                    } finally {
+                        this.isAddingTicker = false;
+                    }
+                },
+
+                async removeTicker(ticker) {
+                    if (!confirm(`¿Eliminar ${ticker} de tu Watchlist?`)) return;
+                    try {
+                        const res = await fetch(`/api/watchlist/${encodeURIComponent(ticker)}`, { method: 'DELETE' });
+                        if (res.ok) {
+                            this.loadWatchlist();
+                        } else {
+                            alert("No se pudo eliminar el ticker.");
+                        }
+                    } catch (e) {
+                        alert("Error de conexión al eliminar.");
+                    }
+                },
+
+                async testTelegram() {
+                    try {
+                        const res = await fetch('/api/telegram/test', { method: 'POST' });
+                        const data = await res.json();
+                        if (res.ok) {
+                            alert("¡Mensaje de prueba enviado exitosamente a tu Telegram!");
+                        } else {
+                            alert(`Aviso Telegram: ${data.detail}`);
+                        }
+                    } catch (e) {
+                        alert("Error conectando con la API de Telegram");
+                    }
+                },
+
+                async toggleTelegram() {
+                    try {
+                        const res = await fetch('/api/telegram/toggle', { method: 'POST' });
+                        if (res.ok) {
+                            const data = await res.json();
+                            this.telegramEnabled = data.telegram_enabled;
+                            this.configForm.telegram_enabled = data.telegram_enabled;
+                        }
+                    } catch (e) {
+                        alert("Error al alternar notificaciones de Telegram");
+                    }
+                },
+
+                async openSettingsModal(tab = 'bingx') {
+                    this.settingsTab = tab;
+                    this.saveSuccessMsg = '';
+                    this.showSettingsModal = true;
+                    await this.loadConfig();
+                },
+
+                async loadConfig() {
+                    try {
+                        const res = await fetch('/api/config');
+                        if (res.ok) {
+                            const data = await res.json();
+                            this.configForm = { ...this.configForm, ...data };
+                            if (data.telegram_enabled !== undefined) {
+                                this.telegramEnabled = data.telegram_enabled;
+                            }
+                        }
+                    } catch (e) {
+                        console.error("Error cargando configuración:", e);
+                    }
+                },
+
+                async saveConfig() {
+                    this.isSavingSettings = true;
+                    this.saveSuccessMsg = '';
+                    try {
+                        const res = await fetch('/api/config', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(this.configForm)
+                        });
+                        const data = await res.json();
+                        if (res.ok) {
+                            this.saveSuccessMsg = "¡Configuración guardada y aplicada en caliente!";
+                            this.isDemo = this.configForm.is_demo;
+                            this.telegramEnabled = this.configForm.telegram_enabled;
+                            this.refreshData();
+                            this.loadWatchlist();
+                            setTimeout(() => {
+                                this.saveSuccessMsg = '';
+                            }, 4000);
+                        } else {
+                            alert(`Error al guardar configuración: ${data.detail || 'Fallo del servidor'}`);
+                        }
+                    } catch (e) {
+                        alert("Error de conexión al guardar configuración.");
+                    } finally {
+                        this.isSavingSettings = false;
+                    }
+                },
+
+                async testTelegramFromModal() {
+                    await this.saveConfig();
+                    await this.testTelegram();
+                },
+
+                async switchEnvironment() {
+                    const targetMode = !this.isDemo;
+                    const modeName = targetMode ? "DEMO (VST)" : "REAL (USDT)";
+                    if (!confirm(`¿Alternar a la cuenta ${modeName}? No se cerrará ninguna posición abierta.`)) return;
+
+                    this.isLoading = true;
+                    try {
+                        const res = await fetch('/api/environment/switch', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ is_demo: targetMode })
+                        });
+                        if (res.ok) {
+                            const data = await res.json();
+                            this.isDemo = data.is_demo;
+                            this.balance = data.balance;
+                            this.refreshData();
+                            this.loadWatchlist();
+                        }
+                    } catch (e) {
+                        alert("Error al alternar entorno.");
+                    } finally {
+                        this.isLoading = false;
+                    }
+                },
+
+                async toggleBot() {
+                    this.isLoading = true;
+                    try {
+                        const res = await fetch('/api/toggle', { method: 'POST' });
+                        if (res.ok) {
+                            const data = await res.json();
+                            this.isBotActive = data.is_active;
+                            this.circuitBreakerTriggered = false;
+                            this.refreshData();
+                        }
+                    } catch (e) {
+                        alert("Error alternando estado del bot");
+                    } finally {
+                        this.isLoading = false;
+                    }
+                },
+
+                async toggleScanner() {
+                    try {
+                        const res = await fetch('/api/scanner/toggle', { method: 'POST' });
+                        if (res.ok) {
+                            const data = await res.json();
+                            this.scannerActive = data.scanner_active;
+                        }
+                    } catch (e) {
+                        alert("Error alternando scanner");
+                    }
+                },
+
+                async setScannerMode(mode) {
+                    try {
+                        const res = await fetch('/api/scanner/mode', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ mode })
+                        });
+                        if (res.ok) {
+                            const data = await res.json();
+                            this.scannerMode = data.scanner_mode;
+                        }
+                    } catch (e) {
+                        alert("Error al cambiar rango del scanner");
+                    }
+                },
+
+                async resetCircuitBreaker() {
+                    await this.toggleBot();
+                },
+
+                async openQuickOrder(symbol, side, leverage) {
+                    if (!this.isBotActive) {
+                        alert("El bot está en pausa/apagado. Actívalo con el switch ON antes de operar.");
+                        return;
+                    }
+                    const accName = this.isDemo ? "DEMO (VST)" : "REAL (USDT)";
+                    if (!confirm(`¿Ejecutar orden rápida de ${side} en ${symbol} (${leverage}x) con el 10% del balance en cuenta ${accName}?`)) return;
+
+                    try {
+                        const res = await fetch('/api/manual-order', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ symbol, side, leverage })
+                        });
+                        const data = await res.json();
+                        if (res.ok) {
+                            alert(`¡Orden enviada en ${accName}! ${side} en ${symbol}. Order ID: ${data.order_id}`);
+                            this.refreshData();
+                        } else {
+                            alert(`Error: ${data.detail || 'Fallo al ejecutar orden'}`);
+                        }
+                    } catch (e) {
+                        alert("Error de conexión al enviar orden");
+                    }
+                },
+
+                async closePosition(symbol) {
+                    if (!confirm(`¿Cerrar inmediatamente a mercado la posición de ${symbol}?`)) return;
+                    try {
+                        const res = await fetch(`/api/close-position/${encodeURIComponent(symbol)}`, { method: 'POST' });
+                        const data = await res.json();
+                        if (res.ok) {
+                            alert(`Posición cerrada. PnL: $${data.pnl}`);
+                            this.refreshData();
+                        } else {
+                            alert(`Error: ${data.detail || 'Fallo al cerrar'}`);
+                        }
+                    } catch (e) {
+                        alert("Error de conexión al cerrar");
+                    }
+                },
+
+                connectWebSocket() {
+                    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                    const wsUrl = `${protocol}//${window.location.host}/ws`;
+                    this.ws = new WebSocket(wsUrl);
+
+                    this.ws.onmessage = (event) => {
+                        try {
+                            const payload = JSON.parse(event.data);
+                            if (payload.type === 'log') {
+                                this.logs.push(payload.data);
+                                if (this.logs.length > 60) this.logs.shift();
+                                this.$nextTick(() => {
+                                    const el = document.getElementById('terminalLogs');
+                                    if (el) el.scrollTop = el.scrollHeight;
+                                });
+                            } else if (payload.type === 'update') {
+                                this.balance = payload.data.balance || this.balance;
+                                this.positions = payload.data.positions || this.positions;
+                                this.stats = payload.data.stats || this.stats;
+                                this.isBotActive = payload.data.state?.is_active ?? this.isBotActive;
+                                this.scannerActive = payload.data.scanner_active ?? this.scannerActive;
+                                this.isDemo = payload.data.is_demo ?? this.isDemo;
+                            }
+                        } catch (e) {}
+                    };
+
+                    this.ws.onclose = () => {
+                        setTimeout(() => this.connectWebSocket(), 3000);
+                    };
+                }
+            }
+        }
+    </script>
+</body>
+</html>
