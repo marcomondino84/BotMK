@@ -8,7 +8,7 @@ import math
 import ccxt
 from typing import Dict, Any, List, Optional
 from config import config, ASSET_CATALOG, TICKER_ALIASES
-from database import add_system_log, record_trade_opened, record_trade_closed
+from database import add_system_log, record_trade_opened, record_trade_closed, SessionLocal, TradeRecord
 from notifications import notifier
 
 
@@ -216,11 +216,36 @@ class BingXFuturesClient:
             add_system_log("WARNING", f"Error fijando apalancamiento {exchange_symbol}: {e}")
 
     def get_open_positions(self) -> List[Dict[str, Any]]:
-        """Obtiene las posiciones abiertas activas de la cuenta seleccionada."""
+        """Obtiene las posiciones abiertas activas de la cuenta seleccionada con métricas TP/SL y progreso."""
         self.ensure_markets()
         positions_out = []
         try:
             raw_positions = self.exchange.fetch_positions()
+
+            # Mapear órdenes abiertas de Stop Loss y Take Profit en BingX
+            order_sl_tp = {}
+            try:
+                open_orders = self.exchange.fetch_open_orders()
+                for o in open_orders:
+                    o_sym = o.get("symbol", "")
+                    o_info = o.get("info", {})
+                    o_pos_side = str(o_info.get("positionSide", "")).upper()
+                    o_type = str(o_info.get("type", "")).upper()
+                    stop_px = float(o_info.get("stopPrice") or o.get("stopLossPrice") or o.get("takeProfitPrice") or 0.0)
+
+                    k = f"{o_sym}_{o_pos_side}"
+                    if k not in order_sl_tp:
+                        order_sl_tp[k] = {}
+                    if "STOP" in o_type:
+                        order_sl_tp[k]["sl"] = stop_px
+                    elif "TAKE_PROFIT" in o_type:
+                        order_sl_tp[k]["tp"] = stop_px
+            except Exception as orders_err:
+                add_system_log("DEBUG", f"Aviso al consultar órdenes para SL/TP: {orders_err}")
+
+            def_sl_pct = float(getattr(config, "DEFAULT_SL_PCT", 1.5))
+            def_rr = float(getattr(config, "DEFAULT_RISK_RATIO", 1.5))
+
             for pos in raw_positions:
                 contracts = float(pos.get("contracts") or pos.get("amount") or 0.0)
                 if contracts > 0:
@@ -241,6 +266,51 @@ class BingXFuturesClient:
 
                     is_be_active = symbol in self.break_even_protected
 
+                    pos_key = f"{symbol}_{side}"
+                    sl_price = order_sl_tp.get(pos_key, {}).get("sl")
+                    tp_price = order_sl_tp.get(pos_key, {}).get("tp")
+
+                    # Si no está en open_orders, buscar en TradeRecord
+                    if not sl_price or not tp_price:
+                        clean_sym = symbol.replace("/USDT:USDT", "").replace("/USDT", "")
+                        try:
+                            with SessionLocal() as db_session:
+                                db_trade = db_session.query(TradeRecord).filter(
+                                    TradeRecord.symbol.like(f"%{clean_sym}%"),
+                                    TradeRecord.status == "OPEN"
+                                ).order_by(TradeRecord.id.desc()).first()
+                                if db_trade:
+                                    sl_price = sl_price or db_trade.sl_price
+                                    tp_price = tp_price or db_trade.tp_price
+                        except Exception:
+                            pass
+
+                    is_long = side in ["BUY", "LONG"]
+                    if not sl_price:
+                        sl_price = entry_price * (1.0 - (def_sl_pct / 100.0)) if is_long else entry_price * (1.0 + (def_sl_pct / 100.0))
+                    if not tp_price:
+                        tp_price = entry_price * (1.0 + ((def_sl_pct * def_rr) / 100.0)) if is_long else entry_price * (1.0 - ((def_sl_pct * def_rr) / 100.0))
+
+                    total_range = (tp_price - sl_price) if is_long else (sl_price - tp_price)
+                    if total_range > 0 and current_price > 0:
+                        if is_long:
+                            progress_pct = ((current_price - sl_price) / total_range) * 100.0
+                            entry_progress_pct = ((entry_price - sl_price) / total_range) * 100.0
+                            dist_tp_pct = max(0.0, ((tp_price - current_price) / current_price) * 100.0)
+                            dist_sl_pct = max(0.0, ((current_price - sl_price) / current_price) * 100.0)
+                        else:
+                            progress_pct = ((sl_price - current_price) / total_range) * 100.0
+                            entry_progress_pct = ((sl_price - entry_price) / total_range) * 100.0
+                            dist_tp_pct = max(0.0, ((current_price - tp_price) / current_price) * 100.0)
+                            dist_sl_pct = max(0.0, ((sl_price - current_price) / current_price) * 100.0)
+                    else:
+                        progress_pct = 50.0
+                        entry_progress_pct = 50.0
+                        dist_tp_pct = 0.0
+                        dist_sl_pct = 0.0
+
+                    roe_pct = round((unrealized_pnl / margin) * 100.0, 2) if margin > 0 else 0.0
+
                     positions_out.append({
                         "symbol": symbol,
                         "side": side,
@@ -252,7 +322,14 @@ class BingXFuturesClient:
                         "initial_margin": round(margin, 2),
                         "margin_usdt": round(margin, 2),
                         "notional_usdt": round(notional, 2),
-                        "is_break_even_protected": is_be_active
+                        "is_break_even_protected": is_be_active,
+                        "sl_price": round(sl_price, 4),
+                        "tp_price": round(tp_price, 4),
+                        "roe_pct": roe_pct,
+                        "progress_pct": round(max(0.0, min(100.0, progress_pct)), 1),
+                        "entry_progress_pct": round(max(0.0, min(100.0, entry_progress_pct)), 1),
+                        "dist_tp_pct": round(dist_tp_pct, 2),
+                        "dist_sl_pct": round(dist_sl_pct, 2)
                     })
 
             # Limpiar del set de break-even aquellos activos que ya se cerraron
