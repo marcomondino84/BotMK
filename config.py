@@ -14,8 +14,8 @@ class Config(BaseSettings):
     BINGX_API_KEY: str = Field(default="", description="Clave de API de BingX")
     BINGX_SECRET_KEY: str = Field(default="", description="Clave secreta de BingX")
 
-    # Modo de ejecución
-    IS_DEMO: bool = Field(default=True, description="True para Testnet/Sandbox/VST, False para Cuenta Real")
+    # Modo de ejecución (Predeterminado: Real USDT)
+    IS_DEMO: bool = Field(default=False, description="True para Testnet/Sandbox/VST, False para Cuenta Real")
 
     # Gestión de posición y margen
     POSITION_BALANCE_PCT: float = Field(
