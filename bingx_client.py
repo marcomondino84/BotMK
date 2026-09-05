@@ -21,6 +21,7 @@ class BingXFuturesClient:
         self.secret_key = config.BINGX_SECRET_KEY
         self.is_demo = config.IS_DEMO
         self.break_even_protected = set()
+        self.stagnant_notified = set()
         self.exchange = self._init_exchange()
 
     def _init_exchange(self) -> ccxt.bingx:
@@ -497,6 +498,25 @@ class BingXFuturesClient:
                 try:
                     self.ensure_markets()
                     formatted_be_price = float(self.exchange.price_to_precision(symbol, be_price))
+
+                    # Validación matemática estricta para BingX:
+                    # Para LONG: un Stop Loss debe ser menor al precio actual (formatted_be_price < current_price).
+                    # Para SHORT: un Stop Loss debe ser mayor al precio actual (formatted_be_price > current_price).
+                    is_valid_sl = (formatted_be_price < current_price) if is_long else (formatted_be_price > current_price)
+
+                    if not is_valid_sl:
+                        # La posición está actualmente en leve retroceso/drawdown respecto a entrada.
+                        # No se puede enviar un Stop Loss del lado incorrecto del mercado (evita error BingX 110412).
+                        # Se mantiene el Stop Loss técnico original y se esperará a que el precio vuelva a entrada.
+                        if is_stagnant_be and symbol not in self.stagnant_notified:
+                            self.stagnant_notified.add(symbol)
+                            add_system_log(
+                                "INFO",
+                                f"⏳ Posición en {symbol} ({pos_side}, {open_hours:.1f}h): Actualmente en retroceso flotante "
+                                f"(${current_price} vs BE ${formatted_be_price}). Manteniendo SL técnico original; el blindaje "
+                                f"se activará cuando el precio cruce a Break-Even."
+                            )
+                        continue
 
                     # 1. Cancelar Stop Loss condicional previo en BingX si existe
                     try:
