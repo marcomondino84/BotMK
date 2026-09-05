@@ -35,7 +35,7 @@ class Config(BaseSettings):
         description="Monto fijo de margen en USDT por cada trade si se usa el modo 'fixed_usdt'"
     )
 
-    # Nivel 4: Blindaje a Break-Even Automático (Riesgo Cero)
+    # Nivel 4: Blindaje a Break-Even Automático (Riesgo Cero) y por Estancamiento Temporal
     BREAK_EVEN_ENABLED: bool = Field(
         default=True,
         description="Activa mover el Stop Loss al precio de entrada para asegurar riesgo cero"
@@ -52,6 +52,25 @@ class Config(BaseSettings):
         le=2.0,
         description="Holgura sobre precio de entrada para pagar comisiones de apertura y cierre (+0.08%)"
     )
+    STAGNANT_BE_ENABLED: bool = Field(
+        default=True,
+        description="Activa mover el Stop Loss a Break-Even si la posición se estanca sin movimiento"
+    )
+    STAGNANT_HOURS_THRESHOLD: float = Field(
+        default=4.0,
+        ge=1.0,
+        le=24.0,
+        description="Horas de inactividad/estancamiento antes de mover el Stop Loss a Break-Even (default: 4.0h)"
+    )
+
+    # Parámetros Estrategia SMC / ICT Multi-Temporalidad
+    MACRO_TIMEFRAME: str = Field(default="4h", description="Temporalidad macro directriz institucional (4h)")
+    MACRO_EMA_PERIOD: int = Field(default=50, description="Periodo de EMA directriz de tendencia en 4h (default: 50)")
+    SMC_SWEEP_LOOKBACK: int = Field(default=15, description="Lookback de velas para niveles de liquidez en 15m")
+    SMC_ICHOCH_LOOKBACK: int = Field(default=5, description="Lookback de velas para fractales de quiebre iCHoCH")
+    SMC_TOLERANCE_PCT: float = Field(default=0.08, description="Tolerancia porcentual para detectar mechas de barrida")
+    MIN_24H_VOLUME_USDT: float = Field(default=3000000.0, description="Volumen mínimo 24h en USDT para screener de volatilidad")
+    DEFAULT_SCANNER_MODE: str = Field(default="top_volatility", description="Modo default: 'top_volatility', 'watchlist' o 'full_market'")
 
     # Nivel 1: Filtro Anti-Lateralidad (ADX > 22)
     ADX_FILTER_ENABLED: bool = Field(

@@ -208,17 +208,30 @@ def record_trade_opened(
 
 
 def record_trade_closed(
-    order_id: str,
-    exit_price: float,
-    pnl_usd: float
+    order_id: Optional[str] = None,
+    exit_price: float = 0.0,
+    pnl_usd: float = 0.0,
+    trade_id: Optional[int] = None,
+    symbol: Optional[str] = None
 ) -> Optional[TradeRecord]:
     """
     Registra el cierre de un trade, actualiza el PnL y evalúa el Circuit Breaker.
     """
     with SessionLocal() as session:
-        trade = session.query(TradeRecord).filter_by(order_id=order_id).first()
+        trade = None
+        if trade_id:
+            trade = session.query(TradeRecord).filter_by(id=trade_id).first()
+        elif order_id and order_id != "None":
+            trade = session.query(TradeRecord).filter_by(order_id=order_id).first()
+        
+        if not trade and symbol:
+            clean_sym = symbol.replace("/USDT:USDT", "").replace("/USDT", "")
+            trade = session.query(TradeRecord).filter(
+                TradeRecord.symbol.like(f"%{clean_sym}%"),
+                TradeRecord.status == "OPEN"
+            ).order_by(desc(TradeRecord.id)).first()
+
         if not trade:
-            # Buscar el último trade abierto con ese símbolo si el order_id difiere
             trade = session.query(TradeRecord).filter_by(status="OPEN").order_by(desc(TradeRecord.id)).first()
 
         if trade:

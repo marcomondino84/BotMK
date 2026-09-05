@@ -163,5 +163,54 @@ class NotificationDispatcher:
         )
         self.broadcast_alert(text)
 
+    def notify_stagnant_break_even(
+        self,
+        symbol: str,
+        side: str,
+        open_hours: float,
+        be_price: float,
+        current_roe: float = 0.0,
+        is_demo: bool = True
+    ):
+        """Notifica cuando una posición estancada se protege a Break-Even tras X horas."""
+        account_type = "DEMO (VST)" if is_demo else "REAL (USDT)"
+        text = (
+            f"⏳ *GESTIÓN DE ESTANCAMIENTO ACTIVADA* [{account_type}]\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"🔹 *Activo:* `{symbol}` ({side.upper()})\n"
+            f"⏱️ *Tiempo Abierta:* `{open_hours:.1f}` horas sin avance\n"
+            f"📊 *ROE Actual:* `{current_roe:+.2f}%`\n"
+            f"🛡️ *Acción:* Stop Loss blindado a *Break-Even* (`${be_price:,.4f}`) para eliminar riesgo de pérdida.\n"
+            f"━━━━━━━━━━━━━━━━━━"
+        )
+        self.broadcast_alert(text)
+
+    def notify_smc_signal(
+        self,
+        symbol: str,
+        side: str,
+        pattern: str,
+        level_type: str,
+        level_price: float,
+        sl: float,
+        tp: float,
+        leverage: int,
+        is_demo: bool = True
+    ):
+        """Notifica detección y ejecución de señal SMC / ICT."""
+        account_type = "DEMO (VST)" if is_demo else "REAL (USDT)"
+        icon = "🟢" if side.upper() in ["BUY", "LONG"] else "🔴"
+        text = (
+            f"{icon} *SEÑAL SMC / ICT EJECUTADA* [{account_type}]\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"🔹 *Activo:* `{symbol}` | *{side.upper()}* ({leverage}x)\n"
+            f"⚡ *Patrón:* `{pattern}`\n"
+            f"🎯 *Nivel Barrido ({level_type}):* `${level_price:,.4f}`\n"
+            f"🛑 *Stop Loss Técnico:* `${sl:,.4f}`\n"
+            f"🏁 *Take Profit:* `${tp:,.4f}`\n"
+            f"━━━━━━━━━━━━━━━━━━"
+        )
+        self.broadcast_alert(text)
+
 
 notifier = NotificationDispatcher()

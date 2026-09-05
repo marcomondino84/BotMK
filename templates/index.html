@@ -4,6 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>BotMK - BingX Quant Multi-Asset Terminal</title>
+    <!-- Favicon & Icono Móvil de Rayito -->
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='48' fill='%230f1422' stroke='%23f59e0b' stroke-width='4'/><path d='M54 16 L28 54 L48 54 L44 84 L72 46 L52 46 Z' fill='%23f59e0b'/></svg>">
+    <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%230f1422'/><path d='M54 16 L28 54 L48 54 L44 84 L72 46 L52 46 Z' fill='%23f59e0b'/></svg>">
+    <meta name="apple-mobile-web-app-title" content="BotMK">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#080b11">
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
@@ -81,7 +88,7 @@
                                 </span>
                             </div>
                             <span class="text-slate-600 text-[10px]">•</span>
-                            <span class="text-[9px] sm:text-[10px] text-sky-400 font-mono">MTF: 5m + 15m</span>
+                            <span class="text-[9px] sm:text-[10px] text-amber-400 font-mono font-bold">SMC: 4H + 15m + 5m</span>
                         </div>
                     </div>
                 </div>
@@ -327,6 +334,14 @@
                                         Margen: $<span x-text="formatNumber(pos.margin_usdt || pos.initial_margin)">0.00</span> USDT
                                     </span>
 
+                                    <!-- TIEMPO QUE LLEVA ABIERTA LA POSICIÓN -->
+                                    <span class="px-2 py-0.5 rounded font-mono font-medium bg-sky-950/40 text-sky-300 border border-sky-500/30 flex items-center space-x-1"
+                                          :class="cardSize === 'compact' ? 'text-[9px]' : (cardSize === 'large' ? 'text-xs' : 'text-[10px]')"
+                                          title="Tiempo que lleva abierta esta operación">
+                                        <span>⏱️</span>
+                                        <span x-text="pos.duration_str || 'Recién abierta'"></span>
+                                    </span>
+
                                     <!-- INDICADOR NIVEL 4: BREAK-EVEN PROTEGIDO -->
                                     <template x-if="pos.is_break_even_protected">
                                         <span class="px-2 py-0.5 rounded font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 flex items-center space-x-1 animate-pulse"
@@ -558,24 +573,30 @@
                 <div class="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-lg bg-slate-900/80 border border-slate-800">
                     <div class="flex items-center space-x-2">
                         <span class="text-[10px] text-slate-400 font-mono uppercase tracking-wider font-bold">Rango Auto-Scanner:</span>
-                        <div class="inline-flex rounded-md p-0.5 bg-slate-950 border border-slate-800">
+                        <div class="inline-flex rounded-md p-0.5 bg-slate-950 border border-slate-800 flex-wrap gap-1">
+                            <button @click="setScannerMode('top_volatility')"
+                                    class="px-2.5 py-1 rounded text-[10px] font-mono transition-all flex items-center space-x-1"
+                                    :class="scannerMode === 'top_volatility' ? 'bg-amber-500/20 text-amber-300 font-bold border border-amber-500/40 shadow-sm' : 'text-slate-400 hover:text-white'">
+                                <span>🔥</span>
+                                <span>Mayor Volatilidad (Top Movers)</span>
+                            </button>
                             <button @click="setScannerMode('watchlist')"
                                     class="px-2.5 py-1 rounded text-[10px] font-mono transition-all flex items-center space-x-1"
                                     :class="scannerMode === 'watchlist' ? 'bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30' : 'text-slate-400 hover:text-white'">
                                 <span>📋</span>
-                                <span>Solo Mi Lista (<span x-text="watchlist.length"></span>)</span>
+                                <span>Mi Watchlist (<span x-text="watchlist.length"></span>)</span>
                             </button>
                             <button @click="setScannerMode('full_market')"
                                     class="px-2.5 py-1 rounded text-[10px] font-mono transition-all flex items-center space-x-1"
                                     :class="scannerMode === 'full_market' ? 'bg-sky-500/20 text-sky-300 font-bold border border-sky-500/30' : 'text-slate-400 hover:text-white'">
                                 <span>🌐</span>
-                                <span>Todo BingX (+40 Top Vol)</span>
+                                <span>Todo BingX</span>
                             </button>
                         </div>
                     </div>
                     <div class="text-[10px] text-slate-400 font-mono flex items-center space-x-1.5">
-                        <span class="w-1.5 h-1.5 rounded-full" :class="scannerActive ? 'bg-sky-400 animate-pulse' : 'bg-slate-600'"></span>
-                        <span x-text="scannerMode === 'watchlist' ? 'Modo: Mi Watchlist' : 'Modo: Todo BingX'"></span>
+                        <span class="w-1.5 h-1.5 rounded-full" :class="scannerActive ? 'bg-amber-400 animate-pulse' : 'bg-slate-600'"></span>
+                        <span x-text="scannerMode === 'top_volatility' ? 'Modo: Mayor Volatilidad 24h' : (scannerMode === 'watchlist' ? 'Modo: Mi Watchlist' : 'Modo: Todo BingX')"></span>
                     </div>
                 </div>
 
@@ -675,10 +696,27 @@
                                     <span class="text-[9px] text-slate-500 font-normal" x-text="'(' + trade.leverage + 'x)'"></span>
                                 </td>
                                 <td class="py-2.5 text-slate-300">$<span x-text="trade.entry_price"></span></td>
-                                <td class="py-2.5 text-slate-300">$<span x-text="trade.exit_price || '-'"></span></td>
-                                <td class="py-2.5 text-right font-bold"
-                                    :class="trade.pnl_usd >= 0 ? 'text-emerald-400' : 'text-rose-400'">
-                                    <span x-text="trade.pnl_usd >= 0 ? '+' : ''"></span>$<span x-text="formatNumber(trade.pnl_usd)"></span>
+                                <td class="py-2.5">
+                                    <template x-if="trade.status === 'CLOSED' && trade.exit_price">
+                                        <span class="text-slate-200 font-mono">$<span x-text="trade.exit_price"></span></span>
+                                    </template>
+                                    <template x-if="trade.status !== 'CLOSED' || !trade.exit_price">
+                                        <span class="px-1.5 py-0.5 rounded text-[9px] font-bold font-mono bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                                            ABIERTA
+                                        </span>
+                                    </template>
+                                </td>
+                                <td class="py-2.5 text-right font-bold font-mono">
+                                    <template x-if="trade.status === 'CLOSED'">
+                                        <span :class="trade.pnl_usd >= 0 ? 'text-emerald-400' : 'text-rose-400'">
+                                            <span x-text="trade.pnl_usd >= 0 ? '+' : ''"></span>$<span x-text="formatNumber(trade.pnl_usd)"></span>
+                                        </span>
+                                    </template>
+                                    <template x-if="trade.status !== 'CLOSED'">
+                                        <span class="text-slate-500 text-[10px] font-normal italic">
+                                            En curso...
+                                        </span>
+                                    </template>
                                 </td>
                             </tr>
                         </template>
@@ -981,6 +1019,41 @@
                                         <span class="absolute right-3 top-1.5 text-slate-500 font-mono">%</span>
                                     </div>
                                     <span class="text-[9px] text-slate-400">Holgura sobre precio de entrada para pagar comisiones. (Def: 0.08%)</span>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+
+                    <!-- GESTIÓN DE ESTANCAMIENTO TEMPORAL (4-6H) -->
+                    <div class="p-3.5 rounded-xl bg-amber-950/20 border border-amber-500/40 space-y-3">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center space-x-2.5">
+                                <span class="text-xl">⏳</span>
+                                <div>
+                                    <div class="text-xs font-bold text-amber-400 font-mono uppercase">Gestión de Estancamiento Temporal</div>
+                                    <div class="text-[10px] text-slate-300">Blinda el SL a Break-Even si la posición pasa horas sin movimiento para liberar capital.</div>
+                                </div>
+                            </div>
+                            <label class="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" x-model="configForm.stagnant_be_enabled" class="sr-only peer">
+                                <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-600"></div>
+                            </label>
+                        </div>
+
+                        <template x-if="configForm.stagnant_be_enabled">
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2.5 border-t border-slate-800/80">
+                                <div>
+                                    <label class="block text-slate-300 text-[10px] uppercase font-mono mb-1">Horas Máximas sin Avance:</label>
+                                    <div class="relative">
+                                        <input type="number" step="0.5" min="1.0" max="24.0" x-model="configForm.stagnant_hours_threshold"
+                                               class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs font-mono text-white focus:outline-none focus:border-amber-500">
+                                        <span class="absolute right-3 top-1.5 text-slate-500 font-mono">horas</span>
+                                    </div>
+                                    <span class="text-[9px] text-slate-400">Si tras estas horas la posición sigue abierta sin tocar TP, el SL pasa a Break-Even y se notifica a Telegram. (Def: 4.0h)</span>
+                                </div>
+                                <div class="p-2.5 rounded-lg bg-slate-950/60 border border-slate-800 text-[10px] text-slate-400 font-mono flex flex-col justify-center">
+                                    <div class="text-amber-300 font-bold mb-0.5">🔔 Alerta Automática Telegram:</div>
+                                    <div>Envía mensaje inmediato al chat cuando se protege una operación estancada.</div>
                                 </div>
                             </div>
                         </template>
@@ -1442,6 +1515,23 @@
 
     <!-- Script de Alpine.js -->
     <script>
+        // Interceptor para omitir advertencias de ngrok en peticiones AJAX/Fetch
+        const _origFetch = window.fetch;
+        window.fetch = function (resource, init) {
+            init = init || {};
+            init.headers = init.headers || {};
+            if (init.headers instanceof Headers) {
+                if (!init.headers.has('ngrok-skip-browser-warning')) {
+                    init.headers.set('ngrok-skip-browser-warning', 'true');
+                }
+            } else if (Array.isArray(init.headers)) {
+                init.headers.push(['ngrok-skip-browser-warning', 'true']);
+            } else {
+                init.headers['ngrok-skip-browser-warning'] = 'true';
+            }
+            return _origFetch(resource, init);
+        };
+
         function tradingDashboard() {
             return {
                 isBotActive: true,
@@ -1866,6 +1956,7 @@
                             } else if (payload.type === 'update') {
                                 this.balance = payload.data.balance || this.balance;
                                 this.positions = payload.data.positions || this.positions;
+                                this.trades = payload.data.trades || this.trades;
                                 this.stats = payload.data.stats || this.stats;
                                 this.isBotActive = payload.data.state?.is_active ?? this.isBotActive;
                                 this.scannerActive = payload.data.scanner_active ?? this.scannerActive;

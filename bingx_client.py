@@ -5,6 +5,7 @@ Implementa Apalancamiento Adaptativo, dimensionamiento del 10% y conmutador din�
 """
 
 import math
+from datetime import datetime
 import ccxt
 from typing import Dict, Any, List, Optional
 from config import config, ASSET_CATALOG, TICKER_ALIASES
@@ -270,20 +271,48 @@ class BingXFuturesClient:
                     sl_price = order_sl_tp.get(pos_key, {}).get("sl")
                     tp_price = order_sl_tp.get(pos_key, {}).get("tp")
 
-                    # Si no está en open_orders, buscar en TradeRecord
-                    if not sl_price or not tp_price:
-                        clean_sym = symbol.replace("/USDT:USDT", "").replace("/USDT", "")
-                        try:
-                            with SessionLocal() as db_session:
-                                db_trade = db_session.query(TradeRecord).filter(
-                                    TradeRecord.symbol.like(f"%{clean_sym}%"),
-                                    TradeRecord.status == "OPEN"
-                                ).order_by(TradeRecord.id.desc()).first()
-                                if db_trade:
-                                    sl_price = sl_price or db_trade.sl_price
-                                    tp_price = tp_price or db_trade.tp_price
-                        except Exception:
-                            pass
+                    clean_sym = symbol.replace("/USDT:USDT", "").replace("/USDT", "")
+                    db_trade = None
+                    try:
+                        with SessionLocal() as db_session:
+                            db_trade = db_session.query(TradeRecord).filter(
+                                TradeRecord.symbol.like(f"%{clean_sym}%"),
+                                TradeRecord.status == "OPEN"
+                            ).order_by(TradeRecord.id.desc()).first()
+                            if db_trade:
+                                sl_price = sl_price or db_trade.sl_price
+                                tp_price = tp_price or db_trade.tp_price
+                    except Exception:
+                        pass
+
+                    # Calcular tiempo que lleva abierta la posición de forma clara y legible
+                    delta_sec = None
+                    if db_trade and db_trade.opened_at:
+                        delta_sec = max(0.0, (datetime.now() - db_trade.opened_at).total_seconds())
+                    else:
+                        ts = pos.get("info", {}).get("updateTime") or pos.get("timestamp") or pos.get("info", {}).get("time")
+                        if ts:
+                            try:
+                                delta_sec = max(0.0, datetime.now().timestamp() - (float(ts) / 1000.0))
+                            except Exception:
+                                pass
+
+                    if delta_sec is not None:
+                        h = int(delta_sec // 3600)
+                        m = int((delta_sec % 3600) // 60)
+                        if h >= 24:
+                            d = h // 24
+                            rem_h = h % 24
+                            duration_str = f"{d}d {rem_h:02d}h"
+                        elif h > 0:
+                            duration_str = f"{h}h {m:02d}m"
+                        elif m >= 1:
+                            duration_str = f"{m} min"
+                        else:
+                            sec = max(1, int(delta_sec))
+                            duration_str = f"{sec}s (recién)"
+                    else:
+                        duration_str = "Recién abierta"
 
                     is_long = side in ["BUY", "LONG"]
                     if not sl_price:
@@ -329,7 +358,8 @@ class BingXFuturesClient:
                         "progress_pct": round(max(0.0, min(100.0, progress_pct)), 1),
                         "entry_progress_pct": round(max(0.0, min(100.0, entry_progress_pct)), 1),
                         "dist_tp_pct": round(dist_tp_pct, 2),
-                        "dist_sl_pct": round(dist_sl_pct, 2)
+                        "dist_sl_pct": round(dist_sl_pct, 2),
+                        "duration_str": duration_str
                     })
 
             # Limpiar del set de break-even aquellos activos que ya se cerraron
@@ -398,15 +428,18 @@ class BingXFuturesClient:
 
     def check_and_apply_break_even(self, positions: List[Dict[str, Any]]) -> None:
         """
-        NIVEL 4: Blindaje a Break-Even Automático (Riesgo Cero).
-        Monitorea las posiciones abiertas y, en cuanto alcanzan el umbral de ganancia (+1.0%),
-        mueve el Stop Loss al precio de entrada más comisiones (+0.08%).
+        NIVEL 4: Blindaje a Break-Even Automático (Riesgo Cero) y por Estancamiento Temporal.
+        Monitorea las posiciones abiertas:
+        1. Por Ganancia: En cuanto superan el umbral (+1.0%), mueve el SL a precio de entrada + comisión.
+        2. Por Estancamiento: Si la posición lleva >= 4 horas abierta sin avance, blinda el SL a Break-Even.
         """
         if not getattr(config, "BREAK_EVEN_ENABLED", True) or not positions:
             return
 
         trigger_pct = float(getattr(config, "BREAK_EVEN_TRIGGER_PCT", 1.0))
         offset_pct = float(getattr(config, "BREAK_EVEN_OFFSET_PCT", 0.08))
+        stagnant_hours = float(getattr(config, "STAGNANT_HOURS_THRESHOLD", 4.0))
+        stagnant_enabled = getattr(config, "STAGNANT_BE_ENABLED", True)
 
         for pos in positions:
             symbol = pos.get("symbol")
@@ -433,8 +466,34 @@ class BingXFuturesClient:
                 pos_side = "SHORT"
                 close_side = "buy"
 
-            # Evaluar si la posición alcanzó el umbral para activar el Break-Even
-            if gain_pct >= trigger_pct:
+            # Calcular antigüedad de la posición en horas
+            open_hours = 0.0
+            clean_sym = symbol.replace("/USDT:USDT", "").replace("/USDT", "")
+            try:
+                with SessionLocal() as db_session:
+                    db_trade = db_session.query(TradeRecord).filter(
+                        TradeRecord.symbol.like(f"%{clean_sym}%"),
+                        TradeRecord.status == "OPEN"
+                    ).order_by(TradeRecord.id.desc()).first()
+                    if db_trade and db_trade.opened_at:
+                        delta = (datetime.now() - db_trade.opened_at).total_seconds() / 3600.0
+                        open_hours = max(0.0, delta)
+            except Exception:
+                pass
+
+            if open_hours == 0.0:
+                ts = pos.get("timestamp") or pos.get("info", {}).get("updateTime")
+                if ts:
+                    try:
+                        open_hours = max(0.0, (datetime.now().timestamp() - (float(ts) / 1000.0)) / 3600.0)
+                    except Exception:
+                        pass
+
+            is_gain_be = gain_pct >= trigger_pct
+            is_stagnant_be = bool(stagnant_enabled and open_hours >= stagnant_hours and not is_gain_be)
+
+            # Evaluar si procede blindar a Break-Even
+            if is_gain_be or is_stagnant_be:
                 try:
                     self.ensure_markets()
                     formatted_be_price = float(self.exchange.price_to_precision(symbol, be_price))
@@ -459,26 +518,151 @@ class BingXFuturesClient:
                     )
 
                     self.break_even_protected.add(symbol)
-                    msg = (
-                        f"🛡️ BREAK-EVEN ACTIVADO en {symbol} ({pos_side}): "
-                        f"Ganancia alcanzó +{gain_pct:.2f}%. Stop Loss blindado a ${formatted_be_price} (Riesgo Cero)."
-                    )
-                    add_system_log("INFO", msg)
 
-                    # 3. Notificación a Telegram
-                    from notifications import notifier
-                    tele_text = (
-                        f"🛡️ *PROTECCIÓN BREAK-EVEN ACTIVADA* [Riesgo Cero]\n\n"
-                        f"📌 Activo: *{symbol}* ({pos_side})\n"
-                        f"📈 Ganancia alcanzada: *+{gain_pct:.2f}%*\n"
-                        f"🎯 Entrada: ${entry_price}\n"
-                        f"🛡️ Nuevo SL Blindado: *${formatted_be_price}*\n\n"
-                        f"✨ _La operación ahora está protegida contra pérdidas._"
-                    )
-                    notifier.send_telegram(tele_text)
+                    if is_gain_be:
+                        msg = (
+                            f"🛡️ BREAK-EVEN ACTIVADO en {symbol} ({pos_side}): "
+                            f"Ganancia alcanzó +{gain_pct:.2f}%. Stop Loss blindado a ${formatted_be_price} (Riesgo Cero)."
+                        )
+                        add_system_log("INFO", msg)
+
+                        tele_text = (
+                            f"🛡️ *PROTECCIÓN BREAK-EVEN ACTIVADA* [Riesgo Cero]\n\n"
+                            f"📌 Activo: *{symbol}* ({pos_side})\n"
+                            f"📈 Ganancia alcanzada: *+{gain_pct:.2f}%*\n"
+                            f"🎯 Entrada: ${entry_price}\n"
+                            f"🛡️ Nuevo SL Blindado: *${formatted_be_price}*\n\n"
+                            f"✨ _La operación ahora está protegida contra pérdidas._"
+                        )
+                        notifier.send_telegram(tele_text)
+                    else:
+                        msg = (
+                            f"⏳ ESTANCAMIENTO DETECTADO en {symbol} ({pos_side}): "
+                            f"Lleva {open_hours:.1f}h abierta sin avance. SL blindado a Break-Even ${formatted_be_price}."
+                        )
+                        add_system_log("WARNING", msg)
+
+                        notifier.notify_stagnant_break_even(
+                            symbol=symbol,
+                            side=pos_side,
+                            open_hours=open_hours,
+                            be_price=formatted_be_price,
+                            current_roe=float(pos.get("roe_pct", 0.0)),
+                            is_demo=self.is_demo
+                        )
 
                 except Exception as be_err:
                     add_system_log("ERROR", f"Fallo al aplicar Break-Even en {symbol}: {be_err}")
+
+    def sync_closed_trades(self, current_open_positions: List[Dict[str, Any]]) -> None:
+        """
+        Sincroniza con BingX los trades que ya se cerraron por Stop Loss, Take Profit
+        o cierre manual externo, actualizando su precio de salida y PnL real en SQLite y estadísticas.
+        """
+        try:
+            active_symbols = set()
+            for p in current_open_positions:
+                sym = p.get("symbol", "")
+                if sym:
+                    active_symbols.add(sym.upper())
+                    clean = sym.split(":")[0].replace("-", "/").upper()
+                    active_symbols.add(clean)
+                    active_symbols.add(clean.split("/")[0])
+
+            with SessionLocal() as session:
+                open_trades = session.query(TradeRecord).filter(TradeRecord.status == "OPEN").all()
+                if not open_trades:
+                    return
+
+                # Consultar historial de ingresos de BingX para obtener PnL realizado exacto
+                recent_income = []
+                try:
+                    inc_res = self.exchange.swapV2PrivateGetUserIncome({"limit": 50})
+                    recent_income = inc_res.get("data", [])
+                except Exception as inc_err:
+                    add_system_log("DEBUG", f"Aviso al consultar UserIncome de BingX: {inc_err}")
+
+                for t in open_trades:
+                    clean_db_sym = t.symbol.replace("-", "/").upper()
+                    base = clean_db_sym.split("/")[0]
+
+                    is_still_open = (
+                        t.symbol.upper() in active_symbols or
+                        clean_db_sym in active_symbols or
+                        base in active_symbols
+                    )
+
+                    if not is_still_open:
+                        exit_price = 0.0
+                        pnl_usd = 0.0
+                        matched_income = False
+
+                        # 1. Intentar obtener PnL realizado exacto desde BingX UserIncome
+                        bingx_sym = clean_db_sym.replace("/", "-")
+                        for inc in recent_income:
+                            if inc.get("incomeType") == "REALIZED_PNL" and (
+                                inc.get("symbol") == bingx_sym or
+                                base in inc.get("symbol", "")
+                            ):
+                                pnl_usd = float(inc.get("income") or 0.0)
+                                matched_income = True
+                                break
+
+                        # 2. Si no se encontró en UserIncome, consultar trades recientes de la moneda
+                        if not matched_income:
+                            try:
+                                resolved = self.resolve_symbol(t.symbol)
+                                ex_sym = resolved["exchange_symbol"]
+                                my_trades = self.exchange.fetch_my_trades(ex_sym, limit=5)
+                                if my_trades:
+                                    last_trade = my_trades[-1]
+                                    exit_price = float(last_trade.get("price") or 0.0)
+                                    comm = abs(float(last_trade.get("info", {}).get("commission") or 0.0))
+                                    if exit_price > 0 and t.entry_price > 0:
+                                        mult = 1.0 if t.side.upper() in ["BUY", "LONG"] else -1.0
+                                        raw_pnl = mult * (exit_price - t.entry_price) * t.amount
+                                        pnl_usd = raw_pnl - comm
+                            except Exception as fetch_err:
+                                add_system_log("DEBUG", f"Aviso consultando trade cerrado en BingX para {t.symbol}: {fetch_err}")
+
+                        # 3. Fallback a precio actual de mercado si aún no hay precio de salida
+                        if exit_price <= 0:
+                            try:
+                                exit_price = self.get_ticker_price(t.symbol)
+                            except Exception:
+                                exit_price = t.entry_price
+
+                        # 4. Filtro de seguridad matemática: el PnL no puede superar el margen razonable
+                        approx_margin = (t.entry_price * t.amount) / max(1, t.leverage or 1)
+                        if approx_margin > 0:
+                            max_bound = approx_margin * 5.0
+                            if abs(pnl_usd) > max_bound:
+                                # Normalizar en caso de discrepancia severa de unidades
+                                pnl_usd = max(-approx_margin, min(max_bound, pnl_usd))
+
+                        record_trade_closed(
+                            trade_id=t.id,
+                            order_id=t.order_id,
+                            exit_price=round(exit_price, 4),
+                            pnl_usd=round(pnl_usd, 2)
+                        )
+
+                        add_system_log(
+                            "INFO",
+                            f"🏁 POSICIÓN CERRADA en BingX: {t.symbol} ({t.side}) | "
+                            f"Salida: ${exit_price:,.4f} | PnL: ${pnl_usd:+,.2f}"
+                        )
+
+                        notifier.notify_trade_closed(
+                            symbol=t.symbol,
+                            side=t.side,
+                            exit_price=exit_price,
+                            pnl_usd=round(pnl_usd, 2),
+                            is_demo=self.is_demo
+                        )
+
+        except Exception as sync_err:
+            add_system_log("DEBUG", f"Aviso al sincronizar trades cerrados: {sync_err}")
 
     def open_bracket_position(
         self,
@@ -486,40 +670,44 @@ class BingXFuturesClient:
         side: str,
         custom_leverage: Optional[int] = None,
         custom_sl_pct: Optional[float] = None,
+        custom_sl_price: Optional[float] = None,
+        custom_tp_price: Optional[float] = None,
         risk_ratio: float = config.DEFAULT_RISK_RATIO
     ) -> Dict[str, Any]:
-        """Abre posición con 10% de balance, apalancamiento adaptativo y SL/TP obligatorios."""
+        """Abre posición con margen configurado, apalancamiento adaptativo y SL/TP técnicos u obligatorios."""
         self.ensure_markets()
         asset_info = self.resolve_symbol(raw_symbol)
         exchange_symbol = asset_info["exchange_symbol"]
         action = side.upper()
 
-        sl_pct = custom_sl_pct or asset_info.get("target_sl", config.DEFAULT_SL_PCT)
-        tp_pct = sl_pct * risk_ratio
-        leverage = custom_leverage or self.get_adaptive_leverage(asset_info, sl_pct)
-
-        pos_side = "LONG" if action == "BUY" else "SHORT"
-
-        # 1. Configurar apalancamiento seguro para el lado exacto
-        self.set_leverage(exchange_symbol, leverage, side=pos_side)
-        add_system_log("INFO", f"🛡️ Apalancamiento asignado: {leverage}x para {exchange_symbol} (SL: {sl_pct:.2f}%)")
-
-        # 2. Precio actual
+        # 1. Precio actual
         entry_price = self.get_ticker_price(exchange_symbol)
 
-        # 3. Niveles SL y TP
-        if action == "BUY":
-            sl_price = entry_price * (1.0 - (sl_pct / 100.0))
-            tp_price = entry_price * (1.0 + (tp_pct / 100.0))
-            order_side = "buy"
-            close_side = "sell"
-        elif action == "SELL":
-            sl_price = entry_price * (1.0 + (sl_pct / 100.0))
-            tp_price = entry_price * (1.0 - (tp_pct / 100.0))
-            order_side = "sell"
-            close_side = "buy"
+        # 2. Niveles SL y TP (técnicos SMC o basados en % de catálogo)
+        if custom_sl_price and custom_tp_price:
+            sl_price = float(custom_sl_price)
+            tp_price = float(custom_tp_price)
+            sl_pct = abs((entry_price - sl_price) / entry_price) * 100.0
         else:
-            raise ValueError(f"Acción '{action}' inválida.")
+            sl_pct = custom_sl_pct or asset_info.get("target_sl", config.DEFAULT_SL_PCT)
+            tp_pct = sl_pct * risk_ratio
+            if action == "BUY":
+                sl_price = entry_price * (1.0 - (sl_pct / 100.0))
+                tp_price = entry_price * (1.0 + (tp_pct / 100.0))
+            elif action == "SELL":
+                sl_price = entry_price * (1.0 + (sl_pct / 100.0))
+                tp_price = entry_price * (1.0 - (tp_pct / 100.0))
+            else:
+                raise ValueError(f"Acción '{action}' inválida.")
+
+        leverage = custom_leverage or self.get_adaptive_leverage(asset_info, sl_pct)
+        pos_side = "LONG" if action == "BUY" else "SHORT"
+        order_side = "buy" if action == "BUY" else "sell"
+        close_side = "sell" if action == "BUY" else "buy"
+
+        # 3. Configurar apalancamiento seguro para el lado exacto
+        self.set_leverage(exchange_symbol, leverage, side=pos_side)
+        add_system_log("INFO", f"🛡️ Apalancamiento asignado: {leverage}x para {exchange_symbol} (SL Técnico: {sl_pct:.2f}%)")
 
         sl_price = float(self.exchange.price_to_precision(exchange_symbol, sl_price))
         tp_price = float(self.exchange.price_to_precision(exchange_symbol, tp_price))
@@ -768,4 +956,51 @@ class BingXFuturesClient:
             add_system_log("WARNING", f"Error obteniendo tickers por volumen: {e}")
             symbols = [s for s, m in self.exchange.markets.items() if m.get("swap") and m.get("quote") == "USDT" and m.get("active")]
             return [{"symbol": s, "ticker": s.split(":")[0], "volume_24h": 0, "last_price": 0} for s in symbols[:limit]]
+
+    def get_market_symbols_by_volatility(
+        self,
+        limit: int = 25,
+        min_volume: float = 3000000.0
+    ) -> List[Dict[str, Any]]:
+        """
+        Screener Cuantitativo de Alta Volatilidad:
+        Obtiene todos los contratos Swap USDT de BingX, calcula el rango porcentual 24h
+        ((High - Low) / Low * 100), filtra por volumen mínimo saludable para evitar activos ilíquidos
+        y retorna el ranking de los pares con mayor volatilidad y movimiento real del mercado hoy.
+        """
+        self.ensure_markets()
+        try:
+            tickers = self.exchange.fetch_tickers()
+            volatile_pairs = []
+            for s, t in tickers.items():
+                if ":USDT" in s:
+                    vol = float(t.get("quoteVolume", 0) or t.get("baseVolume", 0) or 0.0)
+                    if vol < min_volume:
+                        continue
+                    high = float(t.get("high") or 0.0)
+                    low = float(t.get("low") or 0.0)
+                    last = float(t.get("last") or 0.0)
+                    percentage = float(t.get("percentage") or 0.0)
+
+                    # Rango de amplitud 24h o porcentaje absoluto
+                    if low > 0 and high >= low:
+                        range_pct = ((high - low) / low) * 100.0
+                    else:
+                        range_pct = abs(percentage)
+
+                    volatile_pairs.append({
+                        "symbol": s,
+                        "ticker": s.split(":")[0],
+                        "volume_24h": vol,
+                        "last_price": last,
+                        "volatility_pct": round(range_pct, 2),
+                        "change_pct": round(percentage, 2)
+                    })
+
+            # Ordenar descendentemente por mayor volatilidad
+            volatile_pairs.sort(key=lambda x: x["volatility_pct"], reverse=True)
+            return volatile_pairs[:limit]
+        except Exception as e:
+            add_system_log("WARNING", f"Error en screener de volatilidad: {e}")
+            return self.get_market_symbols_by_volume(limit=limit)
 

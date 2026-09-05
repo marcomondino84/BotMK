@@ -10,7 +10,7 @@ import os
 from contextlib import asynccontextmanager
 from typing import List, Dict, Any, Optional
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Response
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 import uvicorn
@@ -66,18 +66,23 @@ async def background_streamer():
                 balance = bingx.get_balance()
                 positions = bingx.get_open_positions()
                 
+                # Sincronizar automáticamente trades cerrados en BingX (por SL, TP o externo)
+                await asyncio.to_thread(bingx.sync_closed_trades, positions)
+
                 # Nivel 4: Evaluar y aplicar blindaje Break-Even si procede
                 if positions:
                     await asyncio.to_thread(bingx.check_and_apply_break_even, positions)
 
                 stats = get_performance_stats()
                 state = get_bot_state()
+                recent_trades = get_recent_trades(limit=25)
 
                 await ws_manager.broadcast({
                     "type": "update",
                     "data": {
                         "balance": balance,
                         "positions": positions,
+                        "trades": recent_trades,
                         "stats": stats,
                         "state": state,
                         "is_demo": bingx.is_demo,
@@ -126,6 +131,13 @@ app = FastAPI(
 )
 
 
+@app.middleware("http")
+async def add_ngrok_header(request, call_next):
+    response = await call_next(request)
+    response.headers["ngrok-skip-browser-warning"] = "true"
+    return response
+
+
 class SignalPayload(BaseModel):
     symbol: str = Field(default="BTC/USDT")
     signal: str = Field(...)
@@ -154,6 +166,10 @@ class ConfigPayload(BaseModel):
     break_even_enabled: Optional[bool] = None
     break_even_trigger_pct: Optional[float] = None
     break_even_offset_pct: Optional[float] = None
+    stagnant_be_enabled: Optional[bool] = None
+    stagnant_hours_threshold: Optional[float] = None
+    macro_ema_period: Optional[int] = None
+    min_24h_volume_usdt: Optional[float] = None
     adx_filter_enabled: Optional[bool] = None
     adx_min_threshold: Optional[float] = None
     default_risk_ratio: Optional[float] = None
@@ -210,6 +226,12 @@ def update_env_file(updates: Dict[str, Any]):
 @app.get("/", response_class=FileResponse)
 async def serve_dashboard():
     return FileResponse("templates/index.html")
+
+
+@app.get("/favicon.ico")
+async def favicon_ico():
+    svg_icon = """<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='48' fill='#0f1422' stroke='#f59e0b' stroke-width='4'/><path d='M54 16 L28 54 L48 54 L44 84 L72 46 L52 46 Z' fill='#f59e0b'/></svg>"""
+    return Response(content=svg_icon, media_type="image/svg+xml")
 
 
 @app.websocket("/ws")
@@ -307,9 +329,14 @@ class ScannerModePayload(BaseModel):
 @app.post("/api/scanner/mode")
 def set_scanner_mode(payload: ScannerModePayload):
     new_mode = auto_scanner.set_mode(payload.mode)
+    labels = {
+        "top_volatility": "MÁXIMA VOLATILIDAD 24H (Top Movers)",
+        "watchlist": "Solo Watchlist",
+        "full_market": "Top Volumen BingX"
+    }
     return {
         "scanner_mode": new_mode,
-        "mode_label": "Solo Watchlist" if new_mode == "watchlist" else "Todo el Mercado BingX"
+        "mode_label": labels.get(new_mode, new_mode)
     }
 
 
@@ -405,6 +432,10 @@ def get_full_config():
         "break_even_enabled": getattr(config, "BREAK_EVEN_ENABLED", True),
         "break_even_trigger_pct": getattr(config, "BREAK_EVEN_TRIGGER_PCT", 1.0),
         "break_even_offset_pct": getattr(config, "BREAK_EVEN_OFFSET_PCT", 0.08),
+        "stagnant_be_enabled": getattr(config, "STAGNANT_BE_ENABLED", True),
+        "stagnant_hours_threshold": getattr(config, "STAGNANT_HOURS_THRESHOLD", 4.0),
+        "macro_ema_period": getattr(config, "MACRO_EMA_PERIOD", 50),
+        "min_24h_volume_usdt": getattr(config, "MIN_24H_VOLUME_USDT", 3000000.0),
         "adx_filter_enabled": getattr(config, "ADX_FILTER_ENABLED", True),
         "adx_min_threshold": getattr(config, "ADX_MIN_THRESHOLD", 22.0),
         "default_risk_ratio": config.DEFAULT_RISK_RATIO,
@@ -443,6 +474,10 @@ def update_full_config(payload: ConfigPayload):
         "BREAK_EVEN_ENABLED": payload.break_even_enabled,
         "BREAK_EVEN_TRIGGER_PCT": payload.break_even_trigger_pct,
         "BREAK_EVEN_OFFSET_PCT": payload.break_even_offset_pct,
+        "STAGNANT_BE_ENABLED": payload.stagnant_be_enabled,
+        "STAGNANT_HOURS_THRESHOLD": payload.stagnant_hours_threshold,
+        "MACRO_EMA_PERIOD": payload.macro_ema_period,
+        "MIN_24H_VOLUME_USDT": payload.min_24h_volume_usdt,
         "ADX_FILTER_ENABLED": payload.adx_filter_enabled,
         "ADX_MIN_THRESHOLD": payload.adx_min_threshold,
         "DEFAULT_RISK_RATIO": payload.default_risk_ratio,
