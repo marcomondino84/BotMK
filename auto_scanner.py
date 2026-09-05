@@ -250,8 +250,7 @@ class AutoScanner:
                             if "Insufficient margin" in err_msg or "Margen libre insuficiente" in err_msg:
                                 add_system_log(
                                     "WARNING",
-                                    f"⏸️ Señal detectada en {raw_sym}, pero el margen libre (${free_usdt:.2f} USDT) está asignado a otras operaciones en curso. "
-                                    f"Esperando a que se libere capital para ingresar."
+                                    f"⏸️ Señal en {raw_sym}: El margen libre disponible (${free_usdt:.2f} USDT) no alcanzó para cubrir el tamaño de lote y comisiones exigidas por BingX para este contrato."
                                 )
                             else:
                                 add_system_log("ERROR", f"Fallo al ejecutar señal SMC en {raw_sym}: {exec_err}")
