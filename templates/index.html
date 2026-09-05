@@ -1496,7 +1496,7 @@
                     <div class="text-right font-mono">
                         <span class="text-[10px] text-slate-400">Pérdidas consecutivas:</span>
                         <div class="text-sm font-bold" :class="stats.consecutive_losses > 0 ? 'text-amber-400' : 'text-emerald-400'">
-                            <span x-text="stats.consecutive_losses">0</span> / 3 Max
+                            <span x-text="stats.consecutive_losses">0</span> / <span x-text="stats.max_consecutive_losses || 100">100</span> Max
                         </div>
                     </div>
                 </div>

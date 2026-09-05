@@ -122,12 +122,11 @@ class AutoScanner:
                     await asyncio.sleep(self.interval)
                     continue
 
-                # Verificar si hay suficiente saldo libre disponible (mínimo $2.00 USDT)
+                # Verificar si hay saldo libre disponible para operar (al menos $0.15 USDT)
                 balance_info = await asyncio.to_thread(self.client.get_balance)
                 free_usdt = float(balance_info.get("free", 0.0))
-                min_free = float(getattr(config, "MIN_POSITION_MARGIN_USDT", 2.0))
-                if free_usdt < min_free:
-                    # El capital disponible está temporalmente asignado a las operaciones en curso
+                if free_usdt <= 0.15:
+                    # El capital disponible está completamente asignado a las operaciones en curso
                     await asyncio.sleep(self.interval)
                     continue
 

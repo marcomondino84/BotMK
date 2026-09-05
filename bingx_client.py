@@ -390,23 +390,27 @@ class BingXFuturesClient:
         free_balance = float(balance_info.get("free", 0.0))
         total_balance = float(balance_info.get("total", free_balance))
 
-        min_required = float(getattr(config, "MIN_POSITION_MARGIN_USDT", 2.0))
-        if free_balance < min_required:
-            raise ValueError(f"Margen libre insuficiente (${free_balance:.2f} USDT). Se requiere al menos ${min_required:.2f} USDT para abrir una nueva posición.")
+        # Colchón de seguridad del 95% para cubrir comisiones taker sin ser rechazado por BingX
+        usable_free = max(0.0, free_balance * 0.95)
+        if usable_free <= 0.05:
+            raise ValueError(f"Saldo libre agotado (${free_balance:.2f} USDT). Esperando liberación de margen.")
 
         sizing_mode = getattr(config, "POSITION_SIZING_MODE", "percent_total")
         if sizing_mode == "fixed_usdt":
             target_margin = float(getattr(config, "FIXED_POSITION_MARGIN_USDT", 10.0))
             mode_desc = f"Monto Fijo ${target_margin:.2f} USDT"
         else:
-            # Porcentaje del balance total para garantizar tamaño constante en todas las órdenes
+            # Porcentaje del balance total para garantizar tamaño constante
             target_margin = total_balance * (balance_pct / 100.0)
             mode_desc = f"{balance_pct:.1f}% Balance Total (${target_margin:.2f} USDT)"
 
-        # Ajuste por seguridad: no usar más del saldo libre disponible en la cuenta
-        margin_to_use = min(target_margin, free_balance)
-        if margin_to_use <= 0:
-            raise ValueError("Saldo libre insuficiente para cubrir el margen requerido.")
+        # USAR LO QUE RESTA DE TODAS FORMAS:
+        # Si el saldo libre disponible no alcanza para el objetivo, usamos lo que queda disponible
+        if usable_free < target_margin:
+            margin_to_use = usable_free
+            mode_desc += f" -> Usando remanente disponible: ${margin_to_use:.2f} USDT"
+        else:
+            margin_to_use = target_margin
 
         notional_value = margin_to_use * leverage
         raw_amount = notional_value / current_price
@@ -418,9 +422,18 @@ class BingXFuturesClient:
             amount = round(raw_amount, 4)
 
         market = self.exchange.markets.get(exchange_symbol, {})
-        min_amount = market.get("limits", {}).get("amount", {}).get("min", 0.0001) or 0.0001
+        limits = market.get("limits", {})
+        min_amount = float(limits.get("amount", {}).get("min", 0.0001) or 0.0001)
+        min_cost = float(limits.get("cost", {}).get("min", 0.0) or 0.0)
+
         if amount < min_amount:
             raise ValueError(f"Cantidad ({amount}) inferior al mínimo de {min_amount} para {exchange_symbol}")
+
+        if min_cost > 0 and notional_value < min_cost:
+            raise ValueError(
+                f"El valor de la orden (${notional_value:.2f} USDT con margen restante ${margin_to_use:.2f} y {leverage}x) "
+                f"es inferior al mínimo requerido por BingX (${min_cost:.2f} USDT)."
+            )
 
         add_system_log(
             "INFO",

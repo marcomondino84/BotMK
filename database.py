@@ -346,6 +346,7 @@ def get_performance_stats() -> Dict[str, Any]:
             "today_wins": today_wins,
             "today_losses": today_losses,
             "consecutive_losses": consecutive_losses,
+            "max_consecutive_losses": config.MAX_CONSECUTIVE_LOSSES,
             "is_active": is_active,
             "circuit_breaker_triggered": cb_triggered,
             "circuit_breaker_reason": cb_reason
