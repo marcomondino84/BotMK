@@ -390,8 +390,9 @@ class BingXFuturesClient:
         free_balance = float(balance_info.get("free", 0.0))
         total_balance = float(balance_info.get("total", free_balance))
 
-        if free_balance <= 0:
-            raise ValueError("Balance libre insuficiente para operar.")
+        min_required = float(getattr(config, "MIN_POSITION_MARGIN_USDT", 2.0))
+        if free_balance < min_required:
+            raise ValueError(f"Margen libre insuficiente (${free_balance:.2f} USDT). Se requiere al menos ${min_required:.2f} USDT para abrir una nueva posición.")
 
         sizing_mode = getattr(config, "POSITION_SIZING_MODE", "percent_total")
         if sizing_mode == "fixed_usdt":

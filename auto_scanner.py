@@ -117,6 +117,20 @@ class AutoScanner:
 
                 open_positions = await asyncio.to_thread(self.client.get_open_positions)
 
+                # Respetar cupo máximo de operaciones simultáneas
+                if len(open_positions) >= config.MAX_SIMULTANEOUS_POSITIONS:
+                    await asyncio.sleep(self.interval)
+                    continue
+
+                # Verificar si hay suficiente saldo libre disponible (mínimo $2.00 USDT)
+                balance_info = await asyncio.to_thread(self.client.get_balance)
+                free_usdt = float(balance_info.get("free", 0.0))
+                min_free = float(getattr(config, "MIN_POSITION_MARGIN_USDT", 2.0))
+                if free_usdt < min_free:
+                    # El capital disponible está temporalmente asignado a las operaciones en curso
+                    await asyncio.sleep(self.interval)
+                    continue
+
                 # Conjunto de normalización para evitar duplicados en el mismo activo
                 active_keys = set()
                 for p in open_positions:
@@ -233,7 +247,15 @@ class AutoScanner:
                             )
 
                         except Exception as exec_err:
-                            add_system_log("ERROR", f"Fallo al ejecutar señal SMC en {raw_sym}: {exec_err}")
+                            err_msg = str(exec_err)
+                            if "Insufficient margin" in err_msg or "Margen libre insuficiente" in err_msg:
+                                add_system_log(
+                                    "WARNING",
+                                    f"⏸️ Señal detectada en {raw_sym}, pero el margen libre (${free_usdt:.2f} USDT) está asignado a otras operaciones en curso. "
+                                    f"Esperando a que se libere capital para ingresar."
+                                )
+                            else:
+                                add_system_log("ERROR", f"Fallo al ejecutar señal SMC en {raw_sym}: {exec_err}")
 
                     await asyncio.sleep(0.3)
 
