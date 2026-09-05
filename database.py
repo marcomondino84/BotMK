@@ -49,6 +49,7 @@ class TradeRecord(Base):
     pnl_usd = Column(Float, default=0.0)
     pnl_pct = Column(Float, default=0.0)
     status = Column(String(16), default="OPEN", index=True)  # OPEN, CLOSED, CANCELLED
+    is_demo = Column(Boolean, default=False, index=True)
     opened_at = Column(DateTime, default=datetime.now)
     closed_at = Column(DateTime, nullable=True)
 
@@ -185,9 +186,10 @@ def record_trade_opened(
     entry_price: float,
     leverage: int,
     sl_price: Optional[float] = None,
-    tp_price: Optional[float] = None
+    tp_price: Optional[float] = None,
+    is_demo: bool = False
 ) -> int:
-    """Registra la apertura de un trade."""
+    """Registra la apertura de un trade separando demo de real."""
     with SessionLocal() as session:
         trade = TradeRecord(
             order_id=order_id,
@@ -199,6 +201,7 @@ def record_trade_opened(
             sl_price=sl_price,
             tp_price=tp_price,
             status="OPEN",
+            is_demo=is_demo,
             opened_at=datetime.now()
         )
         session.add(trade)
@@ -265,10 +268,15 @@ def record_trade_closed(
     return None
 
 
-def get_recent_trades(limit: int = 20) -> List[Dict[str, Any]]:
-    """Obtiene los últimos trades cerrados o abiertos para la tabla del panel."""
+def get_recent_trades(limit: int = 20, is_demo: Optional[bool] = None) -> List[Dict[str, Any]]:
+    """Obtiene los últimos trades filtrados estrictamente por cuenta (Real o Demo)."""
+    if is_demo is None:
+        is_demo = getattr(config, "IS_DEMO", False)
+
     with SessionLocal() as session:
-        trades = session.query(TradeRecord).order_by(desc(TradeRecord.id)).limit(limit).all()
+        trades = session.query(TradeRecord).filter(
+            TradeRecord.is_demo == is_demo
+        ).order_by(desc(TradeRecord.id)).limit(limit).all()
         result = []
         for t in trades:
             notional = round(t.amount * t.entry_price, 2) if t.entry_price else 0.0
@@ -289,16 +297,23 @@ def get_recent_trades(limit: int = 20) -> List[Dict[str, Any]]:
                 "pnl_usd": round(t.pnl_usd, 2),
                 "pnl_pct": round(t.pnl_pct, 2),
                 "status": t.status,
+                "is_demo": bool(t.is_demo),
                 "opened_at": t.opened_at.strftime("%Y-%m-%d %H:%M:%S") if t.opened_at else "",
                 "closed_at": t.closed_at.strftime("%Y-%m-%d %H:%M:%S") if t.closed_at else ""
             })
         return result
 
 
-def get_performance_stats() -> Dict[str, Any]:
-    """Calcula las métricas cuantitativas clave y detalladas para el panel y modal de estadísticas."""
+def get_performance_stats(is_demo: Optional[bool] = None) -> Dict[str, Any]:
+    """Calcula las métricas cuantitativas clave filtrando estrictamente por cuenta (Real o Demo)."""
+    if is_demo is None:
+        is_demo = getattr(config, "IS_DEMO", False)
+
     with SessionLocal() as session:
-        trades = session.query(TradeRecord).filter(TradeRecord.status == "CLOSED").all()
+        trades = session.query(TradeRecord).filter(
+            TradeRecord.status == "CLOSED",
+            TradeRecord.is_demo == is_demo
+        ).all()
         total_closed = len(trades)
         wins = sum(1 for t in trades if t.pnl_usd > 0)
         losses = sum(1 for t in trades if t.pnl_usd < 0)

@@ -73,9 +73,9 @@ async def background_streamer():
                 if positions:
                     await asyncio.to_thread(bingx.check_and_apply_break_even, positions)
 
-                stats = get_performance_stats()
+                stats = get_performance_stats(is_demo=bingx.is_demo)
                 state = get_bot_state()
-                recent_trades = get_recent_trades(limit=25)
+                recent_trades = get_recent_trades(limit=25, is_demo=bingx.is_demo)
 
                 await ws_manager.broadcast({
                     "type": "update",
@@ -268,10 +268,10 @@ def get_logs(limit: int = 40):
 @app.get("/api/stats")
 def get_stats():
     state = get_bot_state()
-    stats = get_performance_stats()
+    stats = get_performance_stats(is_demo=bingx.is_demo)
     balance = bingx.get_balance()
     positions = bingx.get_open_positions()
-    trades = get_recent_trades(limit=10)
+    trades = get_recent_trades(limit=10, is_demo=bingx.is_demo)
 
     return {
         "state": state,

@@ -811,7 +811,8 @@ class BingXFuturesClient:
             entry_price=entry_price,
             leverage=leverage,
             sl_price=sl_price,
-            tp_price=tp_price
+            tp_price=tp_price,
+            is_demo=self.is_demo
         )
 
         notifier.notify_trade_opened(
