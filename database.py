@@ -265,7 +265,100 @@ def record_trade_closed(
 
             session.commit()
             return trade
-    return None
+def get_symbol_cooldown(symbol: str, is_demo: Optional[bool] = None) -> Dict[str, Any]:
+    """
+    Verifica si un activo está en periodo de enfriamiento o bloqueado por límite diario de pérdidas.
+    - Si alcanzó MAX_LOSSES_PER_SYMBOL_DAILY hoy, bloquea el activo por el resto del día.
+    - Si cerró en pérdida (Stop Loss), aplica COOLDOWN_AFTER_LOSS_MINUTES (default: 120 min).
+    - Si cerró en ganancia (Take Profit), aplica COOLDOWN_AFTER_WIN_MINUTES (default: 15 min).
+    Evita revanchas ('revenge trading') y pérdidas repetitivas sobre el mismo activo.
+    """
+    clean_sym = symbol.split(":")[0].replace("-", "/").upper()
+    base = clean_sym.split("/")[0].upper()
+
+    cooldown_loss = int(getattr(config, "COOLDOWN_AFTER_LOSS_MINUTES", 120))
+    cooldown_win = int(getattr(config, "COOLDOWN_AFTER_WIN_MINUTES", 15))
+    max_daily_losses = int(getattr(config, "MAX_LOSSES_PER_SYMBOL_DAILY", 2))
+
+    with SessionLocal() as session:
+        query = session.query(TradeRecord).filter(
+            TradeRecord.status == "CLOSED",
+            (TradeRecord.symbol.like(f"%{base}%") | (TradeRecord.symbol == clean_sym))
+        )
+        if is_demo is not None:
+            query = query.filter(TradeRecord.is_demo == is_demo)
+
+        # 1. Verificar tope de pérdidas diarias en el mismo activo
+        start_of_day = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        daily_losses = query.filter(
+            TradeRecord.closed_at >= start_of_day,
+            TradeRecord.pnl_usd < 0
+        ).count()
+
+        if daily_losses >= max_daily_losses:
+            return {
+                "in_cooldown": True,
+                "remaining_minutes": 1440,
+                "last_pnl": -1.0,
+                "reason_type": "Daily Limit",
+                "reason": f"Bloqueado hoy: {daily_losses}/{max_daily_losses} pérdidas diarias en {base}"
+            }
+
+        # 2. Verificar enfriamiento temporal tras último cierre
+        last_trade = query.order_by(desc(TradeRecord.closed_at), desc(TradeRecord.id)).first()
+        if not last_trade or not last_trade.closed_at:
+            return {"in_cooldown": False, "remaining_minutes": 0, "last_pnl": 0.0, "reason": ""}
+
+        elapsed_seconds = (datetime.now() - last_trade.closed_at).total_seconds()
+        elapsed_minutes = elapsed_seconds / 60.0
+        pnl = float(last_trade.pnl_usd or 0.0)
+
+        required_cooldown = cooldown_loss if pnl < 0 else cooldown_win
+        if elapsed_minutes < required_cooldown:
+            remaining = int(required_cooldown - elapsed_minutes) + 1
+            reason_type = "Stop Loss" if pnl < 0 else "Take Profit"
+            return {
+                "in_cooldown": True,
+                "remaining_minutes": remaining,
+                "last_pnl": pnl,
+                "reason_type": reason_type,
+                "reason": f"Enfriamiento tras {reason_type} ({remaining}m rest.)"
+            }
+
+    return {"in_cooldown": False, "remaining_minutes": 0, "last_pnl": 0.0, "reason": ""}
+
+
+def check_daily_drawdown_and_reset(current_balance_usdt: float) -> Dict[str, Any]:
+    """
+    Resetea el PnL diario al cambiar de día y verifica si se superó MAX_DAILY_DRAWDOWN_PCT.
+    """
+    with SessionLocal() as session:
+        state = session.query(BotStateRecord).filter_by(id=1).first()
+        if not state:
+            return {"blocked": False, "reason": ""}
+
+        today_str = str(date.today())
+        last_str = str(state.last_reset_date or "")[:10]
+        if last_str != today_str:
+            state.daily_pnl_usd = 0.0
+            state.consecutive_losses = 0
+            state.last_reset_date = today_str
+            session.commit()
+
+        max_dd_pct = float(getattr(config, "MAX_DAILY_DRAWDOWN_PCT", 5.0))
+        if current_balance_usdt > 0 and state.daily_pnl_usd < 0:
+            dd_pct = (abs(state.daily_pnl_usd) / current_balance_usdt) * 100.0
+            if dd_pct >= max_dd_pct:
+                reason = f"Circuit Breaker: Drawdown diario alcanzó -{dd_pct:.2f}% (Límite: -{max_dd_pct}%)"
+                if state.is_active:
+                    state.is_active = False
+                    state.circuit_breaker_triggered = True
+                    state.circuit_breaker_reason = reason
+                    add_system_log("WARNING", reason)
+                    session.commit()
+                return {"blocked": True, "reason": reason}
+
+        return {"blocked": not state.is_active, "reason": state.circuit_breaker_reason or ""}
 
 
 def get_recent_trades(limit: int = 20, is_demo: Optional[bool] = None) -> List[Dict[str, Any]]:

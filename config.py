@@ -69,7 +69,10 @@ class Config(BaseSettings):
     SMC_SWEEP_LOOKBACK: int = Field(default=15, description="Lookback de velas para niveles de liquidez en 15m")
     SMC_ICHOCH_LOOKBACK: int = Field(default=5, description="Lookback de velas para fractales de quiebre iCHoCH")
     SMC_TOLERANCE_PCT: float = Field(default=0.08, description="Tolerancia porcentual para detectar mechas de barrida")
-    MIN_24H_VOLUME_USDT: float = Field(default=3000000.0, description="Volumen mínimo 24h en USDT para screener de volatilidad")
+    MIN_24H_VOLUME_USDT: float = Field(default=6000000.0, description="Volumen mínimo 24h en USDT para screener de volatilidad")
+    MAX_24H_VOLATILITY_PCT: float = Field(default=16.0, description="Tope máximo de volatilidad 24h permitido (%) para evitar memecoins/pumps descontrolados")
+    MIN_24H_VOLATILITY_PCT: float = Field(default=3.0, description="Mínimo de volatilidad 24h requerido (%) para descartar activos estancados")
+    MIN_MARKET_AGE_DAYS: int = Field(default=15, description="Antigüedad mínima requerida en días para filtrar activos recién listados")
     DEFAULT_SCANNER_MODE: str = Field(default="top_volatility", description="Modo default: 'top_volatility', 'watchlist' o 'full_market'")
 
     # Nivel 1: Filtro Anti-Lateralidad (ADX > 22)
@@ -84,18 +87,70 @@ class Config(BaseSettings):
         description="Umbral mínimo de fuerza de tendencia ADX para validar operaciones (default: 22.0)"
     )
 
+    # Nivel 1.5: Centinela Maestro de Régimen de Mercado (Bitcoin y S&P 500)
+    BTC_SENTINEL_ENABLED: bool = Field(
+        default=True,
+        description="Bloquea compras en altcoins si Bitcoin entra en corrección en 15m, y bloquea ventas si está en impulso"
+    )
+    SP500_SENTINEL_ENABLED: bool = Field(
+        default=True,
+        description="Bloquea compras en índices y acciones si el S&P 500 entra en corrección, y bloquea ventas si está en impulso"
+    )
+    BENCHMARK_TIMEFRAME: str = Field(
+        default="15m",
+        description="Temporalidad de análisis del Centinela (default: 15m)"
+    )
+    BENCHMARK_EMA_FAST: int = Field(
+        default=20,
+        ge=5,
+        le=50,
+        description="Periodo de EMA rápida para el Centinela (default: 20)"
+    )
+    BENCHMARK_EMA_SLOW: int = Field(
+        default=50,
+        ge=20,
+        le=200,
+        description="Periodo de EMA lenta para el Centinela (default: 50)"
+    )
+
     # Reglas de salida obligatorias (SL / TP)
     DEFAULT_RISK_RATIO: float = Field(
-        default=1.5,
+        default=2.0,
         ge=1.0,
         le=5.0,
-        description="Ratio Riesgo/Beneficio para Take Profit (1:1.5 a 1:2)"
+        description="Ratio Riesgo/Beneficio mínimo para Take Profit (1:2.0)"
     )
     DEFAULT_SL_PCT: float = Field(
         default=1.5,
         ge=0.2,
         le=10.0,
         description="Porcentaje técnico base de Stop Loss respecto al precio de entrada"
+    )
+    MIN_SL_PCT: float = Field(
+        default=0.8,
+        ge=0.3,
+        le=5.0,
+        description="Distancia mínima de Stop Loss para evitar que ruido o comisiones salten el SL de inmediato (default: 0.8%)"
+    )
+
+    # Protección Anti-Overtrading / Anti-Revenge (Enfriamiento por activo)
+    COOLDOWN_AFTER_LOSS_MINUTES: int = Field(
+        default=120,
+        ge=5,
+        le=720,
+        description="Minutos de enfriamiento obligatorio tras tocar Stop Loss antes de volver a operar el mismo activo (default: 120 min)"
+    )
+    COOLDOWN_AFTER_WIN_MINUTES: int = Field(
+        default=15,
+        ge=0,
+        le=180,
+        description="Minutos de enfriamiento tras cerrar en Take Profit antes de volver a operar el mismo activo (default: 15 min)"
+    )
+    MAX_LOSSES_PER_SYMBOL_DAILY: int = Field(
+        default=2,
+        ge=1,
+        le=10,
+        description="Máximo de pérdidas permitidas en el mismo activo durante el día antes de bloquearlo hasta mañana"
     )
 
     # Rangos de apalancamiento adaptativo y modo automático antiliquidación
@@ -110,17 +165,17 @@ class Config(BaseSettings):
         description="Factor de seguridad: la liquidación estará a este múltiplo de distancia del Stop Loss (ej: 2.0x)"
     )
     MAX_ALLOWED_LEVERAGE: int = Field(
-        default=35,
+        default=10,
         ge=2,
-        le=250,
-        description="Tope máximo de apalancamiento de seguridad permitido"
+        le=50,
+        description="Tope máximo de apalancamiento de seguridad permitido (default: 10x)"
     )
 
     # Valores base por categoría si el modo automático está desactivado
-    LEVERAGE_INDICES: int = Field(default=40, description="Apalancamiento para Índices Bursátiles (SP500, NASDAQ, DOW)")
-    LEVERAGE_COMMODITIES: int = Field(default=20, description="Apalancamiento para Oro / Petróleo")
+    LEVERAGE_INDICES: int = Field(default=20, description="Apalancamiento para Índices Bursátiles (SP500, NASDAQ, DOW)")
+    LEVERAGE_COMMODITIES: int = Field(default=15, description="Apalancamiento para Oro / Petróleo")
     LEVERAGE_CRYPTO_MAJORS: int = Field(default=15, description="Apalancamiento para BTC y ETH")
-    LEVERAGE_CRYPTO_ALTS: int = Field(default=8, description="Apalancamiento para Altcoins (SOL, etc.)")
+    LEVERAGE_CRYPTO_ALTS: int = Field(default=12, description="Apalancamiento para Altcoins (SOL, NEAR, etc.)")
     LEVERAGE_STOCKS: int = Field(default=10, description="Apalancamiento para Acciones (TSLA, NVDA)")
 
     # Circuit Breaker
@@ -204,7 +259,7 @@ ASSET_CATALOG = {
     "SOL/USDT": {"category": "crypto_alt", "name": "Solana", "target_sl": 2.5, "symbol": "SOL/USDT:USDT"},
     
     # Índices Bursátiles
-    "SPX500": {"category": "index", "name": "S&P 500", "target_sl": 0.5, "symbol": "SPX/USDT:USDT"},
+    "SPX500": {"category": "index", "name": "S&P 500", "target_sl": 0.5, "symbol": "NCSISP5002USD/USDT:USDT"},
     "NASDAQ": {"category": "index", "name": "Nasdaq 100", "target_sl": 0.6, "symbol": "NCSINASDAQ1002USD/USDT:USDT"},
     "DOW": {"category": "index", "name": "Dow Jones", "target_sl": 0.5, "symbol": "NCSIDOWJONES2USD/USDT:USDT"},
 

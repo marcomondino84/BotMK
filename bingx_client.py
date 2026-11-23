@@ -168,7 +168,7 @@ class BingXFuturesClient:
         return max(2, min(config.MAX_ALLOWED_LEVERAGE, base_lev))
 
     def get_balance(self) -> Dict[str, Any]:
-        """Obtiene el balance libre y total de la cuenta activa (Demo o Real)."""
+        """Obtiene el balance libre y total (Patrimonio / Equity) de la cuenta activa (Demo o Real)."""
         try:
             raw_balance = self.exchange.fetch_balance()
             total_b = raw_balance.get("total", {})
@@ -183,17 +183,53 @@ class BingXFuturesClient:
             total = float(total_b.get(asset, 0.0) or 0.0)
             free = float(free_b.get(asset, 0.0) or 0.0)
             used = float(used_b.get(asset, 0.0) or 0.0)
+            wallet_balance = total
+            unrealized_pnl = 0.0
+
+            # En cuenta Real (USDT Swap), BingX devuelve equity, balance y availableMargin en info.data
+            info_data = raw_balance.get("info", {}).get("data", [])
+            target_data = None
+            if isinstance(info_data, list):
+                for item in info_data:
+                    if isinstance(item, dict) and item.get("asset") == asset:
+                        target_data = item
+                        break
+            elif isinstance(info_data, dict):
+                b_info = info_data.get("balance", {})
+                if isinstance(b_info, dict) and b_info.get("asset") == asset:
+                    target_data = b_info
+
+            if target_data:
+                eq = target_data.get("equity")
+                wb = target_data.get("balance")
+                am = target_data.get("availableMargin")
+                um = target_data.get("usedMargin")
+                upnl = target_data.get("unrealizedProfit")
+
+                if eq is not None:
+                    total = float(eq)
+                if wb is not None:
+                    wallet_balance = float(wb)
+                if am is not None:
+                    free = float(am)
+                if um is not None:
+                    used = float(um)
+                if upnl is not None:
+                    unrealized_pnl = float(upnl)
 
             return {
                 "asset": asset,
                 "is_demo": self.is_demo,
                 "total": round(total, 2),
+                "wallet_balance": round(wallet_balance, 2),
+                "equity": round(total, 2),
                 "free": round(free, 2),
-                "used": round(used, 2)
+                "used": round(used, 2),
+                "unrealized_pnl": round(unrealized_pnl, 2)
             }
         except Exception as err:
             add_system_log("ERROR", f"Error al consultar balance: {err}")
-            return {"asset": "USDT", "is_demo": self.is_demo, "total": 0.0, "free": 0.0, "used": 0.0}
+            return {"asset": "USDT", "is_demo": self.is_demo, "total": 0.0, "wallet_balance": 0.0, "equity": 0.0, "free": 0.0, "used": 0.0, "unrealized_pnl": 0.0}
 
     def get_ticker_price(self, exchange_symbol: str) -> float:
         """Obtiene el último precio de mercado."""
@@ -204,18 +240,45 @@ class BingXFuturesClient:
             raise ValueError(f"No se pudo obtener precio para {exchange_symbol}")
         return float(price)
 
-    def set_leverage(self, exchange_symbol: str, leverage: int, side: Optional[str] = None):
-        """Configura el apalancamiento en BingX para LONG y SHORT garantizando el Hedge Mode."""
+    def set_leverage(self, exchange_symbol: str, leverage: int, side: Optional[str] = None) -> int:
+        """
+        Configura el apalancamiento en BingX para LONG y SHORT garantizando el Hedge Mode.
+        Verifica el límite máximo de apalancamiento permitido por BingX para ese contrato específico.
+        Retorna el apalancamiento real efectivo para que el dimensionamiento no exceda el margen.
+        """
         try:
+            market = self.exchange.market(exchange_symbol)
+            market_id = market.get("id", exchange_symbol.replace("/", "-").split(":")[0])
+
+            # Consultar topes reales de apalancamiento que impone BingX en este contrato
+            try:
+                info_res = self.exchange.swapV2PrivateGetTradeLeverage({"symbol": market_id})
+                data = info_res.get("data", {})
+                target_side = (side or "LONG").upper()
+                max_key = "maxLongLeverage" if target_side == "LONG" else "maxShortLeverage"
+                max_allowed = int(data.get(max_key) or data.get("maxLongLeverage") or 50)
+                if leverage > max_allowed:
+                    add_system_log(
+                        "WARNING",
+                        f"Apalancamiento {leverage}x supera el tope de BingX ({max_allowed}x) para {exchange_symbol}. Ajustando a {max_allowed}x."
+                    )
+                    leverage = max_allowed
+            except Exception as check_err:
+                add_system_log("DEBUG", f"No se pudo consultar maxLeverage para {exchange_symbol}: {check_err}")
+
             target_sides = [side] if side else ["LONG", "SHORT"]
             for s in target_sides:
                 try:
                     self.exchange.set_leverage(leverage, exchange_symbol, params={"side": s})
                 except Exception as inner:
                     add_system_log("DEBUG", f"Aviso set_leverage {s} en {exchange_symbol}: {inner}")
+
             add_system_log("INFO", f"Apalancamiento fijado en {leverage}x para {exchange_symbol}")
+            return leverage
         except Exception as e:
             add_system_log("WARNING", f"Error fijando apalancamiento {exchange_symbol}: {e}")
+            return min(leverage, 20)
+
 
     def get_open_positions(self) -> List[Dict[str, Any]]:
         """Obtiene las posiciones abiertas activas de la cuenta seleccionada con métricas TP/SL y progreso."""
@@ -739,15 +802,28 @@ class BingXFuturesClient:
         order_side = "buy" if action == "BUY" else "sell"
         close_side = "sell" if action == "BUY" else "buy"
 
-        # 3. Configurar apalancamiento seguro para el lado exacto
-        self.set_leverage(exchange_symbol, leverage, side=pos_side)
-        add_system_log("INFO", f"🛡️ Apalancamiento asignado: {leverage}x para {exchange_symbol} (SL Técnico: {sl_pct:.2f}%)")
+        # 3. Configurar apalancamiento seguro y respetar tope máximo permitido por BingX
+        effective_leverage = self.set_leverage(exchange_symbol, leverage, side=pos_side)
+        add_system_log("INFO", f"🛡️ Apalancamiento asignado: {effective_leverage}x para {exchange_symbol} (SL Técnico: {sl_pct:.2f}%)")
 
         sl_price = float(self.exchange.price_to_precision(exchange_symbol, sl_price))
         tp_price = float(self.exchange.price_to_precision(exchange_symbol, tp_price))
 
-        # 4. Tamaño (10% balance libre)
-        amount = self.calculate_position_size(exchange_symbol, entry_price, leverage)
+        # Validación de coherencia para evitar rechazos de BingX (ej: TP Price must be greater than Last Price)
+        if action == "BUY":
+            if tp_price <= entry_price:
+                tp_price = float(self.exchange.price_to_precision(exchange_symbol, entry_price * 1.005))
+            if sl_price >= entry_price:
+                sl_price = float(self.exchange.price_to_precision(exchange_symbol, entry_price * 0.995))
+        elif action == "SELL":
+            if tp_price >= entry_price:
+                tp_price = float(self.exchange.price_to_precision(exchange_symbol, entry_price * 0.995))
+            if sl_price <= entry_price:
+                sl_price = float(self.exchange.price_to_precision(exchange_symbol, entry_price * 1.005))
+
+        # 4. Tamaño calculado con el apalancamiento real efectivo para respetar el margen programado
+        amount = self.calculate_position_size(exchange_symbol, entry_price, effective_leverage)
+
 
         order_params = {
             "positionSide": pos_side,
@@ -995,18 +1071,26 @@ class BingXFuturesClient:
     def get_market_symbols_by_volatility(
         self,
         limit: int = 25,
-        min_volume: float = 3000000.0
+        min_volume: Optional[float] = None
     ) -> List[Dict[str, Any]]:
         """
-        Screener Cuantitativo de Alta Volatilidad:
-        Obtiene todos los contratos Swap USDT de BingX, calcula el rango porcentual 24h
-        ((High - Low) / Low * 100), filtra por volumen mínimo saludable para evitar activos ilíquidos
-        y retorna el ranking de los pares con mayor volatilidad y movimiento real del mercado hoy.
+        Screener Cuantitativo de Volatilidad Saludable (Anti-Shitcoins y Anti-Estancamiento):
+        Filtra pares cuyo movimiento 24h esté dentro de la franja óptima:
+        - Mínimo (ej. 3.0%) para descartar activos planos/estancados.
+        - Máximo (ej. 16.0%) para descartar memecoins y pumps manipulados.
+        - Volumen saludable (ej. >= $6,000,000 USDT) para evitar baja liquidez.
+        Ordena priorizando liquidez y actividad institucional.
         """
         self.ensure_markets()
+        if min_volume is None:
+            min_volume = float(getattr(config, "MIN_24H_VOLUME_USDT", 6000000.0))
+
+        max_vol = float(getattr(config, "MAX_24H_VOLATILITY_PCT", 16.0))
+        min_vol_pct = float(getattr(config, "MIN_24H_VOLATILITY_PCT", 3.0))
+
         try:
             tickers = self.exchange.fetch_tickers()
-            volatile_pairs = []
+            healthy_pairs = []
             for s, t in tickers.items():
                 if ":USDT" in s:
                     vol = float(t.get("quoteVolume", 0) or t.get("baseVolume", 0) or 0.0)
@@ -1023,7 +1107,13 @@ class BingXFuturesClient:
                     else:
                         range_pct = abs(percentage)
 
-                    volatile_pairs.append({
+                    # FILTRO: Descartar si excede el techo máximo (hiper-volátil) o no llega al mínimo (estancado)
+                    if range_pct > max_vol:
+                        continue
+                    if range_pct < min_vol_pct:
+                        continue
+
+                    healthy_pairs.append({
                         "symbol": s,
                         "ticker": s.split(":")[0],
                         "volume_24h": vol,
@@ -1032,10 +1122,10 @@ class BingXFuturesClient:
                         "change_pct": round(percentage, 2)
                     })
 
-            # Ordenar descendentemente por mayor volatilidad
-            volatile_pairs.sort(key=lambda x: x["volatility_pct"], reverse=True)
-            return volatile_pairs[:limit]
+            # Ordenar priorizando mayor volumen institucional dentro de la franja saludable
+            healthy_pairs.sort(key=lambda x: x["volume_24h"], reverse=True)
+            return healthy_pairs[:limit]
         except Exception as e:
-            add_system_log("WARNING", f"Error en screener de volatilidad: {e}")
+            add_system_log("WARNING", f"Error en screener de volatilidad saludable: {e}")
             return self.get_market_symbols_by_volume(limit=limit)
 

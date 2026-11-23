@@ -34,6 +34,8 @@
             }
         }
     </script>
+    <!-- TradingView Lightweight Charts para gráficos interactivos ultraligeros -->
+    <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.5/dist/cdn.min.js"></script>
     <style>
         ::-webkit-scrollbar { width: 4px; height: 4px; }
@@ -164,12 +166,44 @@
             </div>
         </template>
 
+        <!-- Barra Centinela Maestro de Régimen de Mercado (BTC & S&P 500) -->
+        <div class="px-4 py-2.5 rounded-xl glass-panel border border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shadow-md">
+            <div class="flex items-center space-x-2">
+                <div class="w-6 h-6 rounded-lg bg-sky-500/10 border border-sky-500/30 flex items-center justify-center">
+                    <span class="text-xs">🛡️</span>
+                </div>
+                <div>
+                    <div class="text-[11px] font-bold font-mono uppercase tracking-wider text-slate-200">Centinela Maestro de Régimen:</div>
+                    <div class="text-[9px] text-slate-400 font-mono">Filtro rector: bloquea longs en corrección y shorts en impulso</div>
+                </div>
+            </div>
+            <div class="flex items-center space-x-2.5 text-xs font-mono flex-wrap">
+                <!-- Estado BTC -->
+                <div class="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg border transition-all shadow-sm"
+                     :class="benchmarks.btc?.regime === 'BULL_IMPULSE' ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300' : (benchmarks.btc?.regime === 'CORRECTION' ? 'bg-rose-500/15 border-rose-500/40 text-rose-300' : 'bg-slate-800/80 border-slate-700 text-slate-300')">
+                    <span class="font-bold">₿ BTC:</span>
+                    <span x-text="'$' + formatNumber(benchmarks.btc?.price)"></span>
+                    <span class="font-bold text-[10px]" x-text="benchmarks.btc?.regime === 'BULL_IMPULSE' ? '🟢 IMPULSO' : (benchmarks.btc?.regime === 'CORRECTION' ? '🔴 CORRECCIÓN' : '⚪ NEUTRO')"></span>
+                    <span class="text-[9px] opacity-80" x-text="benchmarks.btc?.longs_allowed ? '(Longs OK)' : '(Longs Pausados)'"></span>
+                </div>
+
+                <!-- Estado S&P 500 -->
+                <div class="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg border transition-all shadow-sm"
+                     :class="benchmarks.sp500?.regime === 'BULL_IMPULSE' ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300' : (benchmarks.sp500?.regime === 'CORRECTION' ? 'bg-rose-500/15 border-rose-500/40 text-rose-300' : 'bg-slate-800/80 border-slate-700 text-slate-300')">
+                    <span class="font-bold">📈 SP500:</span>
+                    <span x-text="'$' + formatNumber(benchmarks.sp500?.price)"></span>
+                    <span class="font-bold text-[10px]" x-text="benchmarks.sp500?.regime === 'BULL_IMPULSE' ? '🟢 ALCISTA' : (benchmarks.sp500?.regime === 'CORRECTION' ? '🔴 CORRECCIÓN' : '⚪ NEUTRO')"></span>
+                    <span class="text-[9px] opacity-80" x-text="benchmarks.sp500?.longs_allowed ? '(Longs OK)' : '(Longs Pausados)'"></span>
+                </div>
+            </div>
+        </div>
+
         <!-- Tarjetas KPI -->
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
             <!-- Balance Total -->
             <div class="p-3.5 rounded-xl glass-panel">
                 <div class="flex items-center justify-between">
-                    <div class="text-[11px] font-medium text-slate-400 uppercase tracking-wider">Balance Total</div>
+                    <div class="text-[11px] font-medium text-slate-400 uppercase tracking-wider">Patrimonio Total</div>
                     <span class="text-[9px] px-1.5 py-0.2 rounded font-mono font-bold"
                           :class="isDemo ? 'bg-amber-500/10 text-amber-400' : 'bg-rose-500/10 text-rose-400'"
                           x-text="balance.asset"></span>
@@ -177,8 +211,10 @@
                 <div class="text-xl font-bold font-mono text-white mt-1">
                     $<span x-text="formatNumber(balance.total)">0.00</span>
                 </div>
-                <div class="text-[10px] text-slate-500 mt-0.5">
-                    Libre: $<span x-text="formatNumber(balance.free)">0.00</span>
+                <div class="text-[10px] text-slate-400 mt-0.5 flex items-center justify-between font-mono">
+                    <span>Libre: $<span class="text-emerald-400" x-text="formatNumber(balance.free)">0.00</span></span>
+                    <span class="text-slate-600">|</span>
+                    <span>Usado: $<span class="text-amber-400" x-text="formatNumber(balance.used)">0.00</span></span>
                 </div>
             </div>
 
@@ -226,8 +262,38 @@
                 </div>
             </div>
 
+            <!-- Radar SMC / Checklist en Vivo (Vista Rápida) -->
+            <div class="p-3.5 rounded-xl glass-panel relative overflow-hidden group cursor-pointer hover:border-amber-500/40 transition-all"
+                 @click="openScannerModal()"
+                 title="Haz clic para ver el Radar SMC y checklist detallado de condiciones">
+                <div class="flex items-center justify-between">
+                    <div class="text-[11px] font-medium text-slate-400 uppercase tracking-wider flex items-center space-x-1.5">
+                        <span>Radar SMC</span>
+                        <span class="w-1.5 h-1.5 rounded-full"
+                              :class="scannerActive ? (scannerChecklist.is_scanning ? 'bg-sky-400 animate-ping' : 'bg-amber-400 animate-pulse') : 'bg-slate-600'"
+                              title="Estado del escáner institucional"></span>
+                    </div>
+                    <!-- Botón Miniatura para abrir Modal de Radar -->
+                    <button @click.stop="openScannerModal()"
+                            class="text-[9px] font-mono font-bold px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 hover:bg-amber-500/30 hover:border-amber-400 transition-all flex items-center space-x-1 shadow-sm">
+                        <span>📡</span>
+                        <span>Radar</span>
+                    </button>
+                </div>
+                <div class="text-xl font-bold font-mono text-white mt-1 flex items-baseline space-x-1.5">
+                    <span x-text="scannerChecklist.total_targets ? scannerChecklist.total_targets + ' Pares' : (scannerActive ? 'Escaneando...' : 'Inactivo')">25 Pares</span>
+                    <span class="text-[10px] font-bold text-amber-400 font-mono"
+                          x-show="scannerChecklist.near_entry_count > 0"
+                          x-text="'(' + scannerChecklist.near_entry_count + ' ⚡)'"></span>
+                </div>
+                <div class="text-[10px] text-slate-400 mt-0.5 flex items-center justify-between font-mono">
+                    <span class="truncate">Scan: <span class="text-slate-300" x-text="scannerChecklist.last_scan_time || 'Iniciando...'"></span></span>
+                    <span class="text-amber-400/80 group-hover:text-amber-300">Detalles ↗</span>
+                </div>
+            </div>
+
             <!-- Notificaciones Telegram y Estrategia -->
-            <div class="p-3.5 rounded-xl glass-panel">
+            <div class="p-3.5 rounded-xl glass-panel col-span-2 sm:col-span-1">
                 <div class="flex items-center justify-between">
                     <div class="text-[11px] font-medium text-slate-400 uppercase tracking-wider">Telegram & MTF</div>
                     <div class="flex items-center space-x-1.5">
@@ -257,6 +323,7 @@
                 </div>
             </div>
         </div>
+
 
         <!-- 1. POSICIONES EN VIVO -->
         <section class="glass-panel rounded-xl p-4">
@@ -388,15 +455,28 @@
                                     </div>
                                 </div>
 
-                                <button @click="closePosition(pos.symbol)"
-                                        class="rounded font-semibold bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 transition-colors whitespace-nowrap"
-                                        :class="{
-                                            'px-2 py-0.5 text-[10px]': cardSize === 'compact',
-                                            'px-2.5 py-1 text-xs': cardSize === 'normal',
-                                            'px-3 py-1.5 text-xs sm:text-sm': cardSize === 'large'
-                                        }">
-                                    Cerrar
-                                </button>
+                                <div class="flex items-center space-x-1.5">
+                                    <button @click="toggleChart(pos)"
+                                            class="rounded font-semibold transition-colors whitespace-nowrap flex items-center space-x-1 shadow-sm"
+                                            :class="[
+                                                isChartOpen(pos.symbol) ? 'bg-sky-500/25 text-sky-300 border border-sky-400/50' : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700',
+                                                cardSize === 'compact' ? 'px-2 py-0.5 text-[10px]' : (cardSize === 'large' ? 'px-3 py-1.5 text-xs sm:text-sm' : 'px-2.5 py-1 text-xs')
+                                            ]"
+                                            title="Ver / Ocultar gráfico de velas en vivo con Entrada, TP y SL">
+                                        <span>📊</span>
+                                        <span x-text="isChartOpen(pos.symbol) ? 'Ocultar' : 'Gráfico'"></span>
+                                    </button>
+
+                                    <button @click="closePosition(pos.symbol)"
+                                            class="rounded font-semibold bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 transition-colors whitespace-nowrap"
+                                            :class="{
+                                                'px-2 py-0.5 text-[10px]': cardSize === 'compact',
+                                                'px-2.5 py-1 text-xs': cardSize === 'normal',
+                                                'px-3 py-1.5 text-xs sm:text-sm': cardSize === 'large'
+                                            }">
+                                        Cerrar
+                                    </button>
+                                </div>
                             </div>
                         </div>
 
@@ -479,6 +559,65 @@
                                 </div>
                             </div>
                         </template>
+
+                        <!-- SECCIÓN DESPLEGABLE: MINI-GRÁFICO INTERACTIVO DE VELAS TRADINGVIEW -->
+                        <div x-show="isChartOpen(pos.symbol)" 
+                             x-transition
+                             class="pt-3 border-t border-slate-800/80 mt-1">
+                            
+                            <!-- Encabezado del Gráfico: Temporalidad y Niveles Clave -->
+                            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 mb-2 font-mono text-[10px]">
+                                <div class="flex items-center space-x-2 flex-wrap gap-y-1">
+                                    <span class="font-bold text-slate-200 flex items-center space-x-1">
+                                        <span class="w-1.5 h-1.5 rounded-full bg-sky-400 animate-pulse"></span>
+                                        <span>Gráfico en Vivo:</span>
+                                    </span>
+                                    <span class="px-1.5 py-0.2 rounded bg-sky-500/15 text-sky-300 border border-sky-500/30">
+                                        🔵 Entrada: $<span x-text="pos.entry_price"></span>
+                                    </span>
+                                    <template x-if="pos.tp_price">
+                                        <span class="px-1.5 py-0.2 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                                            🟢 TP: $<span x-text="pos.tp_price"></span>
+                                        </span>
+                                    </template>
+                                    <template x-if="pos.sl_price">
+                                        <span class="px-1.5 py-0.2 rounded bg-rose-500/15 text-rose-300 border border-rose-500/30">
+                                            🔴 SL: $<span x-text="pos.sl_price"></span>
+                                        </span>
+                                    </template>
+                                </div>
+
+                                <!-- Selector de Marco de Tiempo y Recargar -->
+                                <div class="flex items-center space-x-1 self-end sm:self-auto">
+                                    <template x-for="tf in ['1m', '5m', '15m', '1h']" :key="tf">
+                                        <button @click="changeChartTimeframe(pos, tf)"
+                                                class="px-2 py-0.5 rounded transition-all font-bold"
+                                                :class="getChartTimeframe(pos.symbol) === tf ? 'bg-sky-500/30 text-sky-200 border border-sky-400/50' : 'bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-700'"
+                                                x-text="tf">
+                                        </button>
+                                    </template>
+                                    <button @click="refreshChartCandles(pos)"
+                                            class="p-1 px-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors"
+                                            title="Recargar velas ahora">
+                                        ↻
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Contenedor Canvas TradingView Lightweight Charts -->
+                            <div class="relative w-full rounded-lg bg-brand-terminal border border-slate-800/80 overflow-hidden shadow-inner"
+                                 style="height: 190px;">
+                                <div :id="'tv-chart-' + sanitizeSymbol(pos.symbol)"
+                                     class="w-full h-full"></div>
+                                     
+                                <!-- Indicador de Carga -->
+                                <div x-show="chartLoading[pos.symbol]"
+                                     class="absolute inset-0 bg-brand-dark/75 backdrop-blur-xs flex items-center justify-center space-x-2 text-xs font-mono text-slate-300">
+                                    <span class="animate-spin text-sky-400">↻</span>
+                                    <span>Cargando velas de BingX...</span>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </template>
 
@@ -669,16 +808,16 @@
         <section class="glass-panel rounded-xl p-4">
             <h3 class="text-xs font-bold text-white uppercase tracking-wider font-mono mb-3">Historial de Operaciones</h3>
             <div class="overflow-x-auto">
-                <table class="w-full text-left text-xs font-mono">
+                <table class="w-full table-fixed min-w-[680px] text-left text-xs font-mono">
                     <thead class="text-[10px] text-slate-400 uppercase border-b border-brand-border">
                         <tr>
-                            <th class="pb-2">Fecha</th>
-                            <th class="pb-2">Activo</th>
-                            <th class="pb-2">Lado</th>
-                            <th class="pb-2">Margen (USDT)</th>
-                            <th class="pb-2">Entrada</th>
-                            <th class="pb-2">Salida</th>
-                            <th class="pb-2 text-right">PnL Neto</th>
+                            <th class="pb-2 w-[15%]">Fecha</th>
+                            <th class="pb-2 w-[19%]">Activo</th>
+                            <th class="pb-2 w-[9%]">Lado</th>
+                            <th class="pb-2 w-[16%]">Margen (USDT)</th>
+                            <th class="pb-2 w-[14%]">Entrada</th>
+                            <th class="pb-2 w-[14%]">Salida</th>
+                            <th class="pb-2 w-[13%] text-right">PnL Neto</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-slate-800/60">
@@ -982,6 +1121,63 @@
                                 </div>
                             </div>
                         </template>
+                    </div>
+
+                    <!-- FILTRO CUANTITATIVO: VOLATILIDAD SALUDABLE & MADUREZ (ANTI-SHITCOINS) -->
+                    <div class="p-3.5 rounded-xl bg-purple-950/20 border border-purple-500/40 space-y-3">
+                        <div class="flex items-center space-x-2.5">
+                            <span class="text-xl">🛡️</span>
+                            <div>
+                                <div class="text-xs font-bold text-purple-400 font-mono uppercase">Filtro de Volatilidad Saludable & Madurez</div>
+                                <div class="text-[10px] text-slate-300">Descarta memecoins y pumps descontrolados (+16%), activos muertos (&lt; 3%) y tokens recién listados (&lt; 15 días).</div>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-2.5 border-t border-slate-800/80">
+                            <!-- Volatilidad Máxima 24h -->
+                            <div>
+                                <label class="block text-slate-300 text-[10px] uppercase font-mono mb-1">Volatilidad Máx 24h (%):</label>
+                                <div class="relative">
+                                    <input type="number" step="0.5" min="5" max="50" x-model="configForm.max_24h_volatility_pct"
+                                           class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs font-mono text-white focus:outline-none focus:border-purple-500">
+                                    <span class="absolute right-3 top-1.5 text-slate-500 font-mono text-[10px]">% máx</span>
+                                </div>
+                                <span class="text-[9px] text-slate-400">Por encima se descarta por riesgo de cazas de SL (Def: 16%)</span>
+                            </div>
+
+                            <!-- Volatilidad Mínima 24h -->
+                            <div>
+                                <label class="block text-slate-300 text-[10px] uppercase font-mono mb-1">Volatilidad Mín 24h (%):</label>
+                                <div class="relative">
+                                    <input type="number" step="0.5" min="0.5" max="10" x-model="configForm.min_24h_volatility_pct"
+                                           class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs font-mono text-white focus:outline-none focus:border-purple-500">
+                                    <span class="absolute right-3 top-1.5 text-slate-500 font-mono text-[10px]">% mín</span>
+                                </div>
+                                <span class="text-[9px] text-slate-400">Por debajo se descarta por falta de movimiento (Def: 3%)</span>
+                            </div>
+
+                            <!-- Volumen Mínimo 24h -->
+                            <div>
+                                <label class="block text-slate-300 text-[10px] uppercase font-mono mb-1">Volumen Mín 24h (USDT):</label>
+                                <div class="relative">
+                                    <input type="number" step="500000" min="1000000" x-model="configForm.min_24h_volume_usdt"
+                                           class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs font-mono text-white focus:outline-none focus:border-purple-500">
+                                    <span class="absolute right-2.5 top-1.5 text-slate-500 font-mono text-[9px]">USDT</span>
+                                </div>
+                                <span class="text-[9px] text-slate-400">Garantiza profundidad y liquidez real (Def: $6M)</span>
+                            </div>
+
+                            <!-- Antigüedad Mínima del Activo -->
+                            <div>
+                                <label class="block text-slate-300 text-[10px] uppercase font-mono mb-1">Antigüedad Mínima (Días):</label>
+                                <div class="relative">
+                                    <input type="number" min="3" max="180" x-model="configForm.min_market_age_days"
+                                           class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs font-mono text-white focus:outline-none focus:border-purple-500">
+                                    <span class="absolute right-3 top-1.5 text-slate-500 font-mono text-[10px]">días</span>
+                                </div>
+                                <span class="text-[9px] text-slate-400">Filtra tokens nuevos sin estructura consolidada (Def: 15d)</span>
+                            </div>
+                        </div>
                     </div>
 
                     <!-- NIVEL 4: BLINDAJE A BREAK-EVEN (RIESGO CERO) -->
@@ -1513,6 +1709,222 @@
         </div>
     </div>
 
+    <!-- MODAL INSTITUCIONAL: RADAR SMC Y CHECKLIST EN VIVO -->
+    <div x-show="showScannerModal"
+         x-transition:enter="transition ease-out duration-200"
+         x-transition:enter-start="opacity-0"
+         x-transition:enter-end="opacity-100"
+         x-transition:leave="transition ease-in duration-150"
+         x-transition:leave-start="opacity-100"
+         x-transition:leave-end="opacity-0"
+         class="fixed inset-0 z-50 overflow-y-auto bg-black/85 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4"
+         @keydown.escape.window="showScannerModal = false"
+         x-cloak>
+
+        <div class="bg-slate-900 border border-slate-700/80 rounded-2xl w-full max-w-4xl overflow-hidden shadow-2xl flex flex-col max-h-[92vh] border-amber-500/20"
+             @click.away="showScannerModal = false">
+
+            <!-- Encabezado del Modal -->
+            <div class="px-5 py-3.5 border-b border-slate-800 bg-slate-950/80 flex items-center justify-between">
+                <div class="flex items-center space-x-2.5">
+                    <div class="w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-500/30 flex items-center justify-center">
+                        <span class="text-amber-400 text-base">📡</span>
+                    </div>
+                    <div>
+                        <div class="flex items-center space-x-2">
+                            <h3 class="text-sm font-bold text-white font-mono uppercase tracking-wider">Radar SMC / Checklist Institucional</h3>
+                            <span class="px-2 py-0.5 rounded text-[9px] font-mono font-bold"
+                                  :class="scannerChecklist.is_scanning ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40 animate-pulse' : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'">
+                                <span x-text="scannerChecklist.is_scanning ? 'ESCANEANDO AHORA...' : 'EN ESPERA'"></span>
+                            </span>
+                        </div>
+                        <p class="text-[10px] text-slate-400 font-mono">
+                            Condiciones en vivo para encontrar entradas (Macro 4H + ADX 15m + Barrida + iCHoCH + Gatillo 5m)
+                        </p>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <button @click="triggerScanNow()"
+                            :disabled="isScanningManual || scannerChecklist.is_scanning"
+                            class="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-[10px] font-mono font-bold transition-all flex items-center space-x-1 disabled:opacity-50">
+                        <span :class="(isScanningManual || scannerChecklist.is_scanning) ? 'animate-spin' : ''">🔄</span>
+                        <span x-text="(isScanningManual || scannerChecklist.is_scanning) ? 'Escaneando...' : 'Escanear Ahora'"></span>
+                    </button>
+                    <button @click="showScannerModal = false" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors text-lg">✕</button>
+                </div>
+            </div>
+
+            <!-- Barra de Resumen y Filtros -->
+            <div class="px-5 py-2.5 border-b border-slate-800 bg-slate-900/60 flex flex-wrap items-center justify-between gap-2">
+                <div class="flex items-center space-x-1.5 overflow-x-auto text-[11px] font-mono">
+                    <button @click="scannerFilter = 'all'"
+                            class="px-2.5 py-1 rounded transition-colors"
+                            :class="scannerFilter === 'all' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold' : 'text-slate-400 hover:text-slate-200'">
+                        Todos (<span x-text="scannerChecklist.total_targets || 0"></span>)
+                    </button>
+                    <button @click="scannerFilter = 'near'"
+                            class="px-2.5 py-1 rounded transition-colors"
+                            :class="scannerFilter === 'near' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold' : 'text-slate-400 hover:text-slate-200'">
+                        ⚡ Cerca / Señal (<span x-text="scannerChecklist.near_entry_count || 0"></span>)
+                    </button>
+                    <button @click="scannerFilter = 'bull'"
+                            class="px-2.5 py-1 rounded transition-colors"
+                            :class="scannerFilter === 'bull' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'text-slate-400 hover:text-slate-200'">
+                        🟢 Bull 4H
+                    </button>
+                    <button @click="scannerFilter = 'bear'"
+                            class="px-2.5 py-1 rounded transition-colors"
+                            :class="scannerFilter === 'bear' ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' : 'text-slate-400 hover:text-slate-200'">
+                        🔴 Bear 4H
+                    </button>
+                    <button @click="scannerFilter = 'cooldown'"
+                            class="px-2.5 py-1 rounded transition-colors"
+                            :class="scannerFilter === 'cooldown' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold' : 'text-slate-400 hover:text-slate-200'">
+                        ⏳ Enfriamiento
+                    </button>
+                    <button @click="scannerFilter = 'filtered'"
+                            class="px-2.5 py-1 rounded transition-colors"
+                            :class="scannerFilter === 'filtered' ? 'bg-slate-700 text-slate-200 font-bold' : 'text-slate-400 hover:text-slate-200'">
+                        🚫 Filtrados / Lateral
+                    </button>
+                    <button @click="scannerFilter = 'benchmark_blocked'"
+                            class="px-2.5 py-1 rounded transition-colors"
+                            :class="scannerFilter === 'benchmark_blocked' ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40 font-bold' : 'text-slate-400 hover:text-slate-200'">
+                        🛡️ Veto Centinela
+                    </button>
+                </div>
+                <div class="text-[10px] text-slate-400 font-mono flex items-center space-x-2">
+                    <span>Modo: <span class="text-amber-400 font-bold" x-text="scannerMode === 'top_volatility' ? 'Top Volatilidad' : (scannerMode === 'watchlist' ? 'Watchlist' : 'Todo BingX')"></span></span>
+                    <span>|</span>
+                    <span>Último: <span class="text-white font-bold" x-text="scannerChecklist.last_scan_time || 'Sin datos'"></span></span>
+                </div>
+            </div>
+
+            <!-- Leyenda Rápida de Condiciones -->
+            <div class="px-5 py-2 bg-slate-950/60 border-b border-slate-800/80 text-[10px] text-slate-400 font-mono grid grid-cols-2 sm:grid-cols-5 gap-1">
+                <div><span class="text-amber-400 font-bold">1. 4H Macro:</span> EMA 50 (Dirección)</div>
+                <div><span class="text-sky-400 font-bold">2. ADX 15m:</span> Anti-Rango (> 22)</div>
+                <div><span class="text-emerald-400 font-bold">3. Barrida 15m:</span> Mecha PDH/PDL/Swing</div>
+                <div><span class="text-purple-400 font-bold">4. iCHoCH 15m:</span> Quiebre de Estructura</div>
+                <div><span class="text-rose-400 font-bold">5. Gatillo 5m:</span> Vela Rechazo + SL</div>
+            </div>
+
+            <!-- Lista / Tabla de Activos Escaneados -->
+            <div class="p-4 overflow-y-auto space-y-2.5 font-sans text-xs">
+                <template x-if="!filteredScannerResults || filteredScannerResults.length === 0">
+                    <div class="py-12 text-center text-slate-500 font-mono">
+                        <span class="text-2xl block mb-2">📡</span>
+                        <span>No hay activos con este filtro en el escaneo actual.</span>
+                    </div>
+                </template>
+
+                <template x-for="item in filteredScannerResults" :key="item.symbol">
+                    <div class="p-3 rounded-xl bg-slate-950/60 border border-slate-800/80 hover:border-slate-700 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <!-- Izquierda: Activo y Precio -->
+                        <div class="flex items-center space-x-3 min-w-[170px]">
+                            <div class="w-2.5 h-2.5 rounded-full shrink-0"
+                                 :class="item.score >= 4 ? 'bg-emerald-400 animate-pulse' : (item.score >= 2 ? 'bg-amber-400' : 'bg-slate-600')"></div>
+                            <div>
+                                <div class="flex items-center space-x-1.5 flex-wrap">
+                                    <span class="text-xs font-bold text-white font-mono" x-text="item.symbol"></span>
+                                    <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold"
+                                          :class="item.score === 5 ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' : (item.score >= 3 ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' : 'bg-slate-800 text-slate-400')"
+                                          x-text="item.score + '/5 Checks'"></span>
+                                    <template x-if="item.in_cooldown">
+                                        <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40"
+                                              x-text="'⏳ ' + item.cooldown_min + 'm'"></span>
+                                    </template>
+                                    <template x-if="item.benchmark_blocked">
+                                        <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-rose-500/20 text-rose-300 border border-rose-500/40"
+                                              :title="item.benchmark_reason"
+                                              x-text="'🛡️ Veto Centinela'"></span>
+                                    </template>
+                                    <template x-if="item.verdict === 'HYPER_VOLATILE'">
+                                        <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-rose-500/20 text-rose-300 border border-rose-500/40"
+                                              x-text="'🚫 Hiper-volátil'"></span>
+                                    </template>
+                                    <template x-if="item.verdict === 'STAGNANT'">
+                                        <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-slate-800 text-slate-400 border border-slate-700"
+                                              x-text="'🚫 Estancado'"></span>
+                                    </template>
+                                    <template x-if="item.verdict === 'NEW_TOKEN'">
+                                        <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-purple-500/20 text-purple-300 border border-purple-500/40"
+                                              x-text="'🚫 Recién listado'"></span>
+                                    </template>
+                                </div>
+                                <div class="text-[10px] text-slate-400 font-mono mt-0.5">
+                                    Precio: $<span class="text-slate-200" x-text="item.price"></span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Centro: Badges de las 5 Condiciones -->
+                        <div class="grid grid-cols-2 sm:grid-cols-5 gap-1.5 flex-1 font-mono text-[10px]">
+                            <!-- 1. Macro 4H -->
+                            <div class="p-1.5 rounded bg-slate-900 border border-slate-800 flex flex-col justify-center">
+                                <span class="text-[9px] text-slate-500">1. Macro 4H</span>
+                                <span class="font-bold font-mono"
+                                      :class="item.macro_trend === 'BULL' ? 'text-emerald-400' : (item.macro_trend === 'BEAR' ? 'text-rose-400' : 'text-slate-500')"
+                                      x-text="item.macro_trend === 'BULL' ? '🟢 BULL' : (item.macro_trend === 'BEAR' ? '🔴 BEAR' : '⚪ Neutro')"></span>
+                            </div>
+
+                            <!-- 2. ADX 15m -->
+                            <div class="p-1.5 rounded bg-slate-900 border border-slate-800 flex flex-col justify-center">
+                                <span class="text-[9px] text-slate-500">2. ADX 15m</span>
+                                <span class="font-bold font-mono"
+                                      :class="item.adx_passed ? 'text-emerald-400' : 'text-rose-400'"
+                                      x-text="item.adx_val + (item.adx_passed ? ' ✅' : ' ❌')"></span>
+                            </div>
+
+                            <!-- 3. Barrida 15m -->
+                            <div class="p-1.5 rounded bg-slate-900 border border-slate-800 flex flex-col justify-center">
+                                <span class="text-[9px] text-slate-500">3. Barrida</span>
+                                <span class="font-bold font-mono truncate"
+                                      :class="(item.sweep_low || item.sweep_high) ? 'text-emerald-400' : 'text-slate-500'"
+                                      x-text="item.sweep_low ? 'Sweep Low ✅' : (item.sweep_high ? 'Sweep High ✅' : 'Sin barrida ⚪')"></span>
+                            </div>
+
+                            <!-- 4. iCHoCH 15m -->
+                            <div class="p-1.5 rounded bg-slate-900 border border-slate-800 flex flex-col justify-center">
+                                <span class="text-[9px] text-slate-500">4. iCHoCH</span>
+                                <span class="font-bold font-mono truncate"
+                                      :class="item.ichoch_passed ? 'text-emerald-400' : 'text-slate-500'"
+                                      x-text="item.ichoch_passed ? 'Quiebre ✅' : 'Esperando ⚪'"></span>
+                            </div>
+
+                            <!-- 5. Gatillo 5m -->
+                            <div class="p-1.5 rounded bg-slate-900 border border-slate-800 flex flex-col justify-center">
+                                <span class="text-[9px] text-slate-500">5. Gatillo 5m</span>
+                                <span class="font-bold font-mono truncate"
+                                      :class="item.trigger_5m ? 'text-emerald-400' : 'text-slate-500'"
+                                      x-text="item.trigger_5m ? 'Confirmado ✅' : 'Esperando ⚪'"></span>
+                            </div>
+                        </div>
+
+                        <!-- Derecha: Diagnóstico / Estado -->
+                        <div class="sm:text-right min-w-[190px] font-mono">
+                            <span class="text-[11px] font-bold block"
+                                  :class="item.verdict === 'CONFIRMED' ? 'text-emerald-400' : (item.verdict === 'BENCHMARK_BLOCKED' ? 'text-rose-400' : (item.score >= 3 ? 'text-amber-400' : 'text-slate-400'))"
+                                  x-text="item.verdict_desc"></span>
+                        </div>
+                    </div>
+                </template>
+            </div>
+
+            <!-- Pie del Modal -->
+            <div class="px-5 py-3 border-t border-slate-800 bg-slate-950/80 flex items-center justify-between">
+                <div class="text-[10px] text-slate-500 font-mono">
+                    El escáner analiza automáticamente cada 60s o al pulsar "Escanear Ahora".
+                </div>
+                <button @click="showScannerModal = false"
+                        class="px-4 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-medium text-xs font-mono transition-colors">
+                    Cerrar
+                </button>
+            </div>
+        </div>
+    </div>
+
+
     <!-- Script de Alpine.js -->
     <script>
         // Interceptor para omitir advertencias de ngrok en peticiones AJAX/Fetch
@@ -1552,6 +1964,19 @@
                 showWatchlist: false,
                 showSettingsModal: false,
                 showStatsModal: false,
+                showScannerModal: false,
+                scannerFilter: 'all',
+                isScanningManual: false,
+                scannerChecklist: {
+                    scanner_active: false,
+                    scanner_mode: 'top_volatility',
+                    is_scanning: false,
+                    last_scan_time: '',
+                    total_targets: 0,
+                    near_entry_count: 0,
+                    confirmed_count: 0,
+                    results: []
+                },
                 settingsTab: 'bingx',
                 isSavingSettings: false,
                 saveSuccessMsg: '',
@@ -1568,6 +1993,10 @@
                     break_even_offset_pct: 0.08,
                     adx_filter_enabled: true,
                     adx_min_threshold: 22.0,
+                    min_24h_volume_usdt: 6000000.0,
+                    max_24h_volatility_pct: 16.0,
+                    min_24h_volatility_pct: 3.0,
+                    min_market_age_days: 15,
                     default_risk_ratio: 1.5,
                     default_sl_pct: 1.5,
                     max_simultaneous_positions: 3,
@@ -1592,6 +2021,10 @@
                 circuitBreakerTriggered: false,
                 circuitBreakerReason: '',
                 categoryFilter: 'all',
+                benchmarks: {
+                    btc: { price: 0, regime: 'NEUTRAL', longs_allowed: true, shorts_allowed: true, reason: '' },
+                    sp500: { price: 0, regime: 'NEUTRAL', longs_allowed: true, shorts_allowed: true, reason: '' }
+                },
                 balance: { total: 0, free: 0, used: 0, asset: 'USDT' },
                 stats: { total_trades: 0, wins: 0, losses: 0, win_rate: 0, total_pnl: 0, daily_pnl: 0 },
                 positions: [],
@@ -1599,19 +2032,82 @@
                 watchlist: [],
                 logs: [],
                 ws: null,
+                activeCharts: {},
+                chartTimeframes: {},
+                chartLoading: {},
+                _chartMap: {},
 
                 initApp() {
                     this.refreshData();
                     this.loadWatchlist();
                     this.loadRecentLogs();
+                    this.fetchScannerChecklist();
                     this.connectWebSocket();
 
                     setInterval(() => {
                         this.refreshData();
                         this.loadWatchlist();
                         this.loadRecentLogs();
+                        this.fetchScannerChecklist();
                     }, 4000);
+
+                    // Refrescar velas periódicamente SOLO para los gráficos que el usuario tenga abiertos
+                    setInterval(() => {
+                        for (const pos of (this.positions || [])) {
+                            if (this.activeCharts[pos.symbol]) {
+                                this.initOrUpdateChart(pos, false);
+                            }
+                        }
+                    }, 8000);
                 },
+
+                get filteredScannerResults() {
+                    const res = this.scannerChecklist?.results || [];
+                    if (this.scannerFilter === 'near') return res.filter(r => (r.score || 0) >= 3 && !r.in_cooldown);
+                    if (this.scannerFilter === 'bull') return res.filter(r => r.macro_trend === 'BULL');
+                    if (this.scannerFilter === 'bear') return res.filter(r => r.macro_trend === 'BEAR');
+                    if (this.scannerFilter === 'cooldown') return res.filter(r => r.in_cooldown);
+                    if (this.scannerFilter === 'benchmark_blocked') return res.filter(r => r.benchmark_blocked);
+                    if (this.scannerFilter === 'filtered') return res.filter(r => !r.adx_passed || (r.score || 0) < 2 || r.in_cooldown || r.verdict === 'HYPER_VOLATILE' || r.verdict === 'STAGNANT' || r.verdict === 'NEW_TOKEN');
+                    return res;
+                },
+
+                async fetchScannerChecklist() {
+                    try {
+                        const res = await fetch('/api/scanner/checklist');
+                        if (res.ok) {
+                            this.scannerChecklist = await res.json();
+                            if (this.scannerChecklist.benchmarks) {
+                                this.benchmarks = this.scannerChecklist.benchmarks;
+                            }
+                        }
+                    } catch (e) {}
+                },
+
+                openScannerModal() {
+                    this.showScannerModal = true;
+                    this.fetchScannerChecklist();
+                },
+
+                async triggerScanNow() {
+                    if (this.isScanningManual) return;
+                    this.isScanningManual = true;
+                    try {
+                        await fetch('/api/scanner/scan-now', { method: 'POST' });
+                        let attempts = 0;
+                        const poll = setInterval(async () => {
+                            attempts++;
+                            await this.fetchScannerChecklist();
+                            if (!this.scannerChecklist.is_scanning || attempts > 20) {
+                                clearInterval(poll);
+                                this.isScanningManual = false;
+                            }
+                        }, 1500);
+                    } catch (e) {
+                        this.isScanningManual = false;
+                    }
+                },
+
 
                 get liveUnrealizedPnl() {
                     if (!this.positions || this.positions.length === 0) return 0.0;
@@ -1636,6 +2132,192 @@
                     return num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
                 },
 
+                sanitizeSymbol(sym) {
+                    return (sym || '').replace(/[^a-zA-Z0-9]/g, '_');
+                },
+
+                isChartOpen(sym) {
+                    return !!this.activeCharts[sym];
+                },
+
+                getChartTimeframe(sym) {
+                    return this.chartTimeframes[sym] || '5m';
+                },
+
+                async toggleChart(pos) {
+                    const sym = pos.symbol;
+                    if (this.activeCharts[sym]) {
+                        this.activeCharts[sym] = false;
+                        return;
+                    }
+
+                    this.activeCharts[sym] = true;
+                    if (!this.chartTimeframes[sym]) {
+                        this.chartTimeframes[sym] = '5m';
+                    }
+
+                    this.$nextTick(() => {
+                        this.initOrUpdateChart(pos, true);
+                    });
+                },
+
+                async changeChartTimeframe(pos, tf) {
+                    this.chartTimeframes[pos.symbol] = tf;
+                    await this.initOrUpdateChart(pos, true);
+                },
+
+                async refreshChartCandles(pos) {
+                    await this.initOrUpdateChart(pos, true);
+                },
+
+                async initOrUpdateChart(pos, forceReload = false) {
+                    const sym = pos.symbol;
+                    const containerId = 'tv-chart-' + this.sanitizeSymbol(sym);
+                    const container = document.getElementById(containerId);
+                    if (!container) return;
+
+                    if (typeof LightweightCharts === 'undefined') {
+                        console.warn("LightweightCharts no está disponible.");
+                        return;
+                    }
+
+                    const tf = this.getChartTimeframe(sym);
+                    if (forceReload) {
+                        this.chartLoading[sym] = true;
+                    }
+
+                    try {
+                        const res = await fetch(`/api/candles/${encodeURIComponent(sym)}?timeframe=${tf}&limit=65`);
+                        if (!res.ok) throw new Error("Error al consultar velas");
+                        const data = await res.json();
+                        const candles = data.candles || [];
+                        if (candles.length === 0) return;
+
+                        let entry = this._chartMap[sym];
+
+                        if (!entry || !container.hasChildNodes() || forceReload) {
+                            container.innerHTML = '';
+
+                            const chart = LightweightCharts.createChart(container, {
+                                width: container.clientWidth || 320,
+                                height: 190,
+                                layout: {
+                                    background: { type: 'solid', color: '#05070d' },
+                                    textColor: '#94a3b8',
+                                    fontSize: 10,
+                                    fontFamily: 'JetBrains Mono, monospace'
+                                },
+                                grid: {
+                                    vertLines: { color: 'rgba(30, 41, 59, 0.35)' },
+                                    horzLines: { color: 'rgba(30, 41, 59, 0.35)' },
+                                },
+                                crosshair: {
+                                    mode: LightweightCharts.CrosshairMode.Normal,
+                                },
+                                rightPriceScale: {
+                                    borderColor: '#1e293b',
+                                    scaleMargins: {
+                                        top: 0.15,
+                                        bottom: 0.15,
+                                    },
+                                },
+                                timeScale: {
+                                    borderColor: '#1e293b',
+                                    timeVisible: true,
+                                    secondsVisible: false,
+                                    barSpacing: 5,        // Velas más compactas y elegantes como en la captura
+                                    minBarSpacing: 2,
+                                    rightOffset: 35,      // Centra la última vela dejando margen a la derecha
+                                },
+                            });
+
+                            const candleSeries = chart.addCandlestickSeries({
+                                upColor: '#10b981',
+                                downColor: '#f43f5e',
+                                borderVisible: false,
+                                wickUpColor: '#10b981',
+                                wickDownColor: '#f43f5e',
+                            });
+
+                            const ro = new ResizeObserver(entries => {
+                                for (const item of entries) {
+                                    if (item.contentRect.width > 0) {
+                                        chart.applyOptions({ width: item.contentRect.width });
+                                    }
+                                }
+                            });
+                            ro.observe(container);
+
+                            entry = { chart, candleSeries, priceLines: [], ro, hasPositioned: false };
+                            this._chartMap[sym] = entry;
+                        }
+
+                        entry.candleSeries.setData(candles);
+
+                        // Limpiar líneas anteriores para recalcular
+                        if (entry.priceLines) {
+                            for (const pl of entry.priceLines) {
+                                try { entry.candleSeries.removePriceLine(pl); } catch (e) {}
+                            }
+                        }
+                        entry.priceLines = [];
+
+                        // 1. Línea de Entrada
+                        const entryPx = parseFloat(pos.entry_price);
+                        if (entryPx > 0) {
+                            const plEntry = entry.candleSeries.createPriceLine({
+                                price: entryPx,
+                                color: '#38bdf8',
+                                lineWidth: 2,
+                                lineStyle: LightweightCharts.LineStyle.Solid,
+                                axisLabelVisible: true,
+                                title: `ENTRADA $${entryPx}`,
+                            });
+                            entry.priceLines.push(plEntry);
+                        }
+
+                        // 2. Línea de Take Profit
+                        const tpPx = parseFloat(pos.tp_price);
+                        if (tpPx > 0) {
+                            const plTp = entry.candleSeries.createPriceLine({
+                                price: tpPx,
+                                color: '#10b981',
+                                lineWidth: 2,
+                                lineStyle: LightweightCharts.LineStyle.Dashed,
+                                axisLabelVisible: true,
+                                title: `TP $${tpPx}`,
+                            });
+                            entry.priceLines.push(plTp);
+                        }
+
+                        // 3. Línea de Stop Loss
+                        const slPx = parseFloat(pos.sl_price);
+                        if (slPx > 0) {
+                            const plSl = entry.candleSeries.createPriceLine({
+                                price: slPx,
+                                color: '#f43f5e',
+                                lineWidth: 2,
+                                lineStyle: LightweightCharts.LineStyle.Dashed,
+                                axisLabelVisible: true,
+                                title: `SL $${slPx}`,
+                            });
+                            entry.priceLines.push(plSl);
+                        }
+
+                        // Solo acomodar la cámara en la apertura inicial o recarga manual,
+                        // para NO resetear el zoom ni el paneo del usuario en refrescos periódicos
+                        if (forceReload || !entry.hasPositioned) {
+                            entry.chart.timeScale().scrollToRealtime();
+                            entry.hasPositioned = true;
+                        }
+
+                    } catch (err) {
+                        console.error("Error al renderizar velas:", err);
+                    } finally {
+                        this.chartLoading[sym] = false;
+                    }
+                },
+
                 async refreshData() {
                     try {
                         const res = await fetch('/api/stats');
@@ -1647,10 +2329,13 @@
                             this.balance = data.balance;
                             this.stats = data.stats;
                             this.positions = data.positions;
-                            this.trades = data.trades;
+                            if (JSON.stringify(this.trades) !== JSON.stringify(data.trades)) {
+                                this.trades = data.trades;
+                            }
                             this.isDemo = data.config.is_demo;
                             this.scannerActive = data.scanner_active;
                             if (data.scanner_mode) this.scannerMode = data.scanner_mode;
+                            if (data.benchmarks) this.benchmarks = data.benchmarks;
                             if (data.config) {
                                 this.telegramConfigured = data.config.telegram_configured;
                                 if (data.config.telegram_enabled !== undefined) {
@@ -1956,11 +2641,14 @@
                             } else if (payload.type === 'update') {
                                 this.balance = payload.data.balance || this.balance;
                                 this.positions = payload.data.positions || this.positions;
-                                this.trades = payload.data.trades || this.trades;
+                                if (payload.data.trades && JSON.stringify(this.trades) !== JSON.stringify(payload.data.trades)) {
+                                    this.trades = payload.data.trades;
+                                }
                                 this.stats = payload.data.stats || this.stats;
                                 this.isBotActive = payload.data.state?.is_active ?? this.isBotActive;
                                 this.scannerActive = payload.data.scanner_active ?? this.scannerActive;
                                 this.isDemo = payload.data.is_demo ?? this.isDemo;
+                                if (payload.data.benchmarks) this.benchmarks = payload.data.benchmarks;
                             }
                         } catch (e) {}
                     };

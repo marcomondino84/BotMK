@@ -28,10 +28,12 @@ from database import (
 from bingx_client import BingXFuturesClient
 from auto_scanner import AutoScanner
 from notifications import notifier
+from src.strategies.benchmark_sentinel import benchmark_sentinel
 
 
 bingx = BingXFuturesClient()
 auto_scanner = AutoScanner(bingx)
+benchmark_sentinel.set_client(bingx)
 
 
 class WebSocketManager:
@@ -58,51 +60,54 @@ ws_manager = WebSocketManager()
 
 
 async def background_streamer():
-    """Streaming periódico de estado a clientes WebSockets."""
+    """Streaming periódico de estado a clientes WebSockets y sincronización continua 24/7."""
     last_log_id = 0
+    tick = 0
     while True:
         try:
-            if ws_manager.active_connections:
-                balance = bingx.get_balance()
-                positions = bingx.get_open_positions()
-                
-                # Sincronizar automáticamente trades cerrados en BingX (por SL, TP o externo)
+            has_clients = bool(ws_manager.active_connections)
+            # Sincronizar trades cerrados y Break-Even SIEMPRE (cada 9s si no hay UI conectada, cada 3s si hay UI)
+            if has_clients or (tick % 3 == 0):
+                positions = await asyncio.to_thread(bingx.get_open_positions)
                 await asyncio.to_thread(bingx.sync_closed_trades, positions)
-
-                # Nivel 4: Evaluar y aplicar blindaje Break-Even si procede
                 if positions:
                     await asyncio.to_thread(bingx.check_and_apply_break_even, positions)
 
-                stats = get_performance_stats(is_demo=bingx.is_demo)
-                state = get_bot_state()
-                recent_trades = get_recent_trades(limit=25, is_demo=bingx.is_demo)
+                if has_clients:
+                    balance = await asyncio.to_thread(bingx.get_balance)
+                    stats = get_performance_stats(is_demo=bingx.is_demo)
+                    state = get_bot_state()
+                    recent_trades = get_recent_trades(limit=25, is_demo=bingx.is_demo)
+                    benchmarks = benchmark_sentinel.update_regime()
 
-                await ws_manager.broadcast({
-                    "type": "update",
-                    "data": {
-                        "balance": balance,
-                        "positions": positions,
-                        "trades": recent_trades,
-                        "stats": stats,
-                        "state": state,
-                        "is_demo": bingx.is_demo,
-                        "scanner_active": auto_scanner.is_running
-                    }
-                })
+                    await ws_manager.broadcast({
+                        "type": "update",
+                        "data": {
+                            "balance": balance,
+                            "positions": positions,
+                            "trades": recent_trades,
+                            "stats": stats,
+                            "state": state,
+                            "is_demo": bingx.is_demo,
+                            "scanner_active": auto_scanner.is_running,
+                            "benchmarks": benchmarks
+                        }
+                    })
 
-                recent_logs = get_recent_logs(limit=10)
-                if recent_logs:
-                    newest = recent_logs[-1]
-                    if newest["id"] != last_log_id:
-                        last_log_id = newest["id"]
-                        await ws_manager.broadcast({
-                            "type": "log",
-                            "data": newest
-                        })
+                    recent_logs = get_recent_logs(limit=10)
+                    if recent_logs:
+                        newest = recent_logs[-1]
+                        if newest["id"] != last_log_id:
+                            last_log_id = newest["id"]
+                            await ws_manager.broadcast({
+                                "type": "log",
+                                "data": newest
+                            })
 
         except Exception:
             pass
 
+        tick += 1
         await asyncio.sleep(3)
 
 
@@ -170,6 +175,9 @@ class ConfigPayload(BaseModel):
     stagnant_hours_threshold: Optional[float] = None
     macro_ema_period: Optional[int] = None
     min_24h_volume_usdt: Optional[float] = None
+    max_24h_volatility_pct: Optional[float] = None
+    min_24h_volatility_pct: Optional[float] = None
+    min_market_age_days: Optional[int] = None
     adx_filter_enabled: Optional[bool] = None
     adx_min_threshold: Optional[float] = None
     default_risk_ratio: Optional[float] = None
@@ -271,7 +279,8 @@ def get_stats():
     stats = get_performance_stats(is_demo=bingx.is_demo)
     balance = bingx.get_balance()
     positions = bingx.get_open_positions()
-    trades = get_recent_trades(limit=10, is_demo=bingx.is_demo)
+    trades = get_recent_trades(limit=25, is_demo=bingx.is_demo)
+    benchmarks = benchmark_sentinel.update_regime()
 
     return {
         "state": state,
@@ -279,6 +288,7 @@ def get_stats():
         "balance": balance,
         "positions": positions,
         "trades": trades,
+        "benchmarks": benchmarks,
         "scanner_active": auto_scanner.is_running,
         "scanner_mode": auto_scanner.scan_mode,
         "config": {
@@ -298,6 +308,50 @@ def get_stats():
 @app.get("/api/watchlist")
 def get_watchlist():
     return bingx.get_watchlist_summary()
+
+
+@app.get("/api/candles/{symbol:path}")
+async def get_symbol_candles(symbol: str, timeframe: str = "5m", limit: int = 40):
+    """
+    Retorna las últimas velas OHLCV de BingX optimizadas para TradingView Lightweight Charts.
+    """
+    try:
+        try:
+            meta = bingx.resolve_symbol(symbol)
+            ex_symbol = meta.get("exchange_symbol", symbol)
+        except Exception:
+            ex_symbol = symbol if ":" in symbol else f"{symbol}:USDT"
+
+        limit = max(10, min(limit, 80))
+        ohlcv = await asyncio.to_thread(
+            bingx.exchange.fetch_ohlcv,
+            ex_symbol,
+            timeframe=timeframe,
+            limit=limit
+        )
+
+        if not ohlcv:
+            return {"candles": [], "symbol": symbol, "timeframe": timeframe}
+
+        candles = []
+        for c in ohlcv:
+            candles.append({
+                "time": int(c[0] / 1000),
+                "open": float(c[1]),
+                "high": float(c[2]),
+                "low": float(c[3]),
+                "close": float(c[4]),
+                "volume": float(c[5])
+            })
+
+        return {
+            "symbol": symbol,
+            "exchange_symbol": ex_symbol,
+            "timeframe": timeframe,
+            "candles": candles
+        }
+    except Exception as e:
+        return {"candles": [], "symbol": symbol, "error": str(e)}
 
 
 @app.post("/api/toggle")
@@ -338,6 +392,22 @@ def set_scanner_mode(payload: ScannerModePayload):
         "scanner_mode": new_mode,
         "mode_label": labels.get(new_mode, new_mode)
     }
+
+
+@app.get("/api/scanner/checklist")
+def get_scanner_checklist():
+    """Retorna los resultados y el checklist del último escaneo SMC en vivo."""
+    return auto_scanner.get_checklist_summary()
+
+
+@app.post("/api/scanner/scan-now")
+async def trigger_scan_now():
+    """Dispara un ciclo de escaneo inmediato si no hay uno en ejecución."""
+    if auto_scanner.is_scanning:
+        return {"status": "busy", "message": "Ya hay un escaneo en curso..."}
+    asyncio.create_task(auto_scanner.run_single_scan())
+    return {"status": "started", "message": "Escaneo iniciado con éxito"}
+
 
 
 @app.post("/api/environment/switch")
@@ -435,7 +505,10 @@ def get_full_config():
         "stagnant_be_enabled": getattr(config, "STAGNANT_BE_ENABLED", True),
         "stagnant_hours_threshold": getattr(config, "STAGNANT_HOURS_THRESHOLD", 4.0),
         "macro_ema_period": getattr(config, "MACRO_EMA_PERIOD", 50),
-        "min_24h_volume_usdt": getattr(config, "MIN_24H_VOLUME_USDT", 3000000.0),
+        "min_24h_volume_usdt": getattr(config, "MIN_24H_VOLUME_USDT", 6000000.0),
+        "max_24h_volatility_pct": getattr(config, "MAX_24H_VOLATILITY_PCT", 16.0),
+        "min_24h_volatility_pct": getattr(config, "MIN_24H_VOLATILITY_PCT", 3.0),
+        "min_market_age_days": getattr(config, "MIN_MARKET_AGE_DAYS", 15),
         "adx_filter_enabled": getattr(config, "ADX_FILTER_ENABLED", True),
         "adx_min_threshold": getattr(config, "ADX_MIN_THRESHOLD", 22.0),
         "default_risk_ratio": config.DEFAULT_RISK_RATIO,
@@ -478,6 +551,9 @@ def update_full_config(payload: ConfigPayload):
         "STAGNANT_HOURS_THRESHOLD": payload.stagnant_hours_threshold,
         "MACRO_EMA_PERIOD": payload.macro_ema_period,
         "MIN_24H_VOLUME_USDT": payload.min_24h_volume_usdt,
+        "MAX_24H_VOLATILITY_PCT": payload.max_24h_volatility_pct,
+        "MIN_24H_VOLATILITY_PCT": payload.min_24h_volatility_pct,
+        "MIN_MARKET_AGE_DAYS": payload.min_market_age_days,
         "ADX_FILTER_ENABLED": payload.adx_filter_enabled,
         "ADX_MIN_THRESHOLD": payload.adx_min_threshold,
         "DEFAULT_RISK_RATIO": payload.default_risk_ratio,

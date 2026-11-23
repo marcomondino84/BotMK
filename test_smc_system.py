@@ -1,124 +1,122 @@
 """
-Script de validación del sistema SMC / ICT, Screener de Volatilidad y Gestión de Estancamiento.
+Script de validación de la Estrategia Toni Maura (SMC + FVG + Displacement + Ruptura con Cuerpo)
+y del blindaje de gestión de riesgo.
 """
 
-import sys
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 
-from config import config
 from src.strategies.smc_strategy import (
     detect_macro_trend_4h,
     calculate_liquidity_levels,
-    detect_ichoch,
     detect_liquidity_sweeps,
-    evaluate_smc_setup
+    detect_body_structure_break,
+    detect_fvg_with_displacement,
+    evaluate_smc_setup,
 )
-from bingx_client import BingXFuturesClient
-from auto_scanner import AutoScanner
 
 
-def test_smc_strategy_math():
-    print("--- 1. Probando Estrategia SMC / ICT ---")
+def _make_df(rows: list, freq: str = "5min") -> pd.DataFrame:
+    dates = pd.date_range(end=datetime.now(), periods=len(rows), freq=freq)
+    df = pd.DataFrame(rows, columns=["open", "high", "low", "close", "volume"])
+    df["timestamp"] = dates
+    return df[["timestamp", "open", "high", "low", "close", "volume"]]
 
-    # Crear velas 4H sintéticas alcistas (close > ema 50)
-    dates_4h = pd.date_range(end=datetime.now(), periods=60, freq="4h")
+
+def test_toni_maura_bull_setup():
+    print("--- 1. Probando Estrategia Toni Maura (BUY: Sweep + Body Break + Displacement + FVG) ---")
+
+    # 1. Macro 4H alcista (60 velas subiendo)
     prices_4h = np.linspace(50000, 60000, 60)
-    df_4h = pd.DataFrame({
-        "timestamp": dates_4h,
-        "open": prices_4h - 100,
-        "high": prices_4h + 200,
-        "low": prices_4h - 200,
-        "close": prices_4h,
-        "volume": [1000] * 60
-    })
+    df_4h = _make_df(
+        [[p - 100, p + 200, p - 200, p, 1000.0] for p in prices_4h],
+        freq="4h",
+    )
+    assert detect_macro_trend_4h(df_4h) == "BULL"
 
-    macro_trend = detect_macro_trend_4h(df_4h, ema_period=50)
-    print(f"Tendencia 4H detectada: {macro_trend}")
-    assert macro_trend == "BULL", f"Esperado BULL, obtenido {macro_trend}"
+    # 2. Velas 15m: rango lateral con mínimo previo en 58800 y barrida reciente a 58770 cerrando en 58950
+    rows_15m = [[59000.0, 59050.0, 58950.0, 59000.0, 500.0] for _ in range(40)]
+    rows_15m[-12] = [58920.0, 58960.0, 58800.0, 58900.0, 600.0]  # Swing Low en 58800
+    rows_15m[-3] = [58900.0, 58920.0, 58770.0, 58950.0, 900.0]   # Sweep Low (mecha barre 58800 y cierra arriba)
+    rows_15m[-2] = [58950.0, 59120.0, 58940.0, 59110.0, 1100.0]  # Ruptura con cuerpo > 59050
+    df_15m = _make_df(rows_15m, freq="15min")
 
-    # Crear velas 15m con barrida de mínimo (Sweep Low)
-    dates_15m = pd.date_range(end=datetime.now(), periods=60, freq="15min")
-    prices_15m = np.full(60, 59000.0)
-    df_15m = pd.DataFrame({
-        "timestamp": dates_15m,
-        "open": prices_15m,
-        "high": prices_15m + 50,
-        "low": prices_15m - 50,
-        "close": prices_15m,
-        "volume": [500] * 60
-    })
-    # Definir un mínimo fractal hace 10 velas en 58800
-    df_15m.loc[df_15m.index[-10], "low"] = 58800.0
-    # En la última vela, mecha barre a 58780 pero cierra en 58950 (Sweep Low!)
-    df_15m.loc[df_15m.index[-1], "low"] = 58780.0
-    df_15m.loc[df_15m.index[-1], "close"] = 58950.0
+    levels = calculate_liquidity_levels(df_15m, lookback=20)
+    sweeps = detect_liquidity_sweeps(df_15m, levels, tolerance_pct=0.08)
+    assert sweeps["sweep_low"] is True, f"Esperado sweep_low=True, obtenido {sweeps}"
 
-    levels = calculate_liquidity_levels(df_15m, lookback=15)
-    print(f"Niveles calculados en 15m: {levels}")
+    brk_15 = detect_body_structure_break(df_15m, lookback=6, recent_window=6)
+    assert brk_15["bull_break"] is True, f"Esperado bull_break=True, obtenido {brk_15}"
 
-    sweeps = detect_liquidity_sweeps(df_15m, levels, tolerance_pct=0.1)
-    print(f"Barridas detectadas: {sweeps}")
-    assert sweeps["sweep_low"] is True, "Debería haber detectado Sweep Low"
+    # 3. Velas 5m: consolidación normal con vaivenes, luego Displacement alcista dejando FVG limpio, retroceso y gatillo
+    rows_5m = [
+        [58950.0 + (15 if idx % 2 == 0 else -15), 58985.0, 58915.0, 58940.0 + (15 if idx % 2 == 0 else -15), 200.0]
+        for idx in range(25)
+    ]
+    # Vela i-2 (índice -5): high = 58980
+    rows_5m[-5] = [58955.0, 58980.0, 58940.0, 58975.0, 250.0]
+    # Vela i-1 (índice -4): Displacement fuerte alcista (rango = 220 >> ATR, cuerpo sólido)
+    rows_5m[-4] = [58975.0, 59195.0, 58970.0, 59180.0, 800.0]
+    # Vela i (índice -3): low = 59060 > 58980 -> FVG = [58980, 59060]
+    rows_5m[-3] = [59180.0, 59210.0, 59060.0, 59170.0, 400.0]
+    # Vela -2: retroceso parcial sin invalidar 58980
+    rows_5m[-2] = [59170.0, 59175.0, 59050.0, 59070.0, 220.0]
+    # Vela -1 (actual): toca el FVG (low=59020 <= 59060) y rechaza al alza (close > open)
+    rows_5m[-1] = [59070.0, 59150.0, 59020.0, 59140.0, 350.0]
+    df_5m = _make_df(rows_5m, freq="5min")
 
-    # Velas 5m con vela verde de confirmación
-    df_5m = pd.DataFrame({
-        "timestamp": pd.date_range(end=datetime.now(), periods=20, freq="5min"),
-        "open": [58900.0] * 20,
-        "high": [59000.0] * 20,
-        "low": [58800.0] * 20,
-        "close": [58980.0] * 20,  # close > open (rejection)
-        "volume": [100] * 20
-    })
+    fvg = detect_fvg_with_displacement(df_5m, direction="BULL")
+    assert fvg is not None, "Debería detectar FVG alcista con displacement"
+    assert fvg["low"] == 58980.0 and fvg["high"] == 59060.0
 
-    setup = evaluate_smc_setup(df_4h, df_15m, df_5m)
-    print(f"Setup SMC Evaluado: {setup}")
-    assert setup is not None, "El setup SMC debería ser válido"
-    assert setup["signal"] == "BUY", "La señal debería ser BUY"
-    print("✅ Estrategia SMC validada con éxito.")
+    setup = evaluate_smc_setup(df_4h, df_15m, df_5m, risk_ratio=2.0)
+    assert setup is not None, "El setup Toni Maura BUY debería ser válido"
+    assert setup["signal"] == "BUY"
+    assert setup["sl_price"] < setup["entry_price"] < setup["tp_price"]
+    print(f"OK Setup BUY validado: {setup['pattern']} | SL={setup['sl_price']} | TP={setup['tp_price']}")
 
 
-def test_screener_and_stagnant():
-    print("\n--- 2. Probando Screener y Cliente BingX ---")
-    client = BingXFuturesClient()
+def test_wick_only_break_rejected():
+    print("--- 2. Verificando rechazo de ruptura solo con mecha (Regla Toni Maura) ---")
+    rows_5m = [[100.0, 102.0, 99.0, 100.5, 100.0] for _ in range(25)]
+    # Última vela rompe 102 con mecha (high=105) pero cierra dentro (close=101.0)
+    rows_5m[-1] = [100.5, 105.0, 100.0, 101.0, 300.0]
+    df = _make_df(rows_5m, freq="5min")
+    brk = detect_body_structure_break(df, lookback=8, recent_window=3)
+    assert brk["bull_break"] is False, "Una mecha sin cierre de cuerpo NO debe validar ruptura"
+    print("OK Ruptura solo con mecha rechazada correctamente.")
 
-    print("Probando Screener por Volatilidad (Top 5)...")
-    vol_symbols = client.get_market_symbols_by_volatility(limit=5, min_volume=1000000.0)
-    print(f"Top 5 contratos más volátiles encontrados: {len(vol_symbols)}")
-    for s in vol_symbols:
-        print(f"  -> {s['ticker']}: Volatilidad={s.get('volatility_pct')}% | Vol24h=${s.get('volume_24h'):,.0f}")
 
-    assert len(vol_symbols) > 0, "Debería retornar contratos volátiles"
+def test_macro_filter_blocks_countertrend():
+    print("--- 3. Verificando filtro estricto de tendencia Macro 4H ---")
+    # 4H bajista
+    prices_4h = np.linspace(60000, 50000, 60)
+    df_4h_bear = _make_df([[p + 100, p + 200, p - 200, p, 1000.0] for p in prices_4h], freq="4h")
+    assert detect_macro_trend_4h(df_4h_bear) == "BEAR"
 
-    print("\nProbando inicialización y cambio de modo del AutoScanner...")
-    scanner = AutoScanner(client)
-    scanner.set_mode("top_volatility")
-    assert scanner.scan_mode == "top_volatility", f"Modo esperado top_volatility, obtenido {scanner.scan_mode}"
-    print(f"Modo del scanner verificado: {scanner.scan_mode}")
+    # Reusar velas 15m/5m alcistas -> debe retornar None porque 4H es BEAR
+    rows_15m = [[59000.0, 59050.0, 58950.0, 59000.0, 500.0] for _ in range(40)]
+    rows_15m[-12] = [58920.0, 58960.0, 58800.0, 58900.0, 600.0]
+    rows_15m[-3] = [58900.0, 58920.0, 58770.0, 58950.0, 900.0]
+    rows_15m[-2] = [58950.0, 59120.0, 58940.0, 59110.0, 1100.0]
+    df_15m = _make_df(rows_15m, freq="15min")
 
-    print("\nProbando lógica de estancamiento temporal...")
-    fake_positions = [{
-        "symbol": "BTC/USDT:USDT",
-        "side": "SHORT",
-        "amount": 0.001,
-        "entry_price": 60000.0,
-        "current_price": 60050.0,  # Leve pérdida / plano
-        "timestamp": int((datetime.now() - timedelta(hours=5)).timestamp() * 1000),  # Abierta hace 5 horas
-        "roe_pct": -0.5
-    }]
-    # Esto no debe generar error
-    client.check_and_apply_break_even(fake_positions)
-    print("✅ Gestión de estancamiento probada sin errores.")
+    rows_5m = [[58950.0, 58970.0, 58930.0, 58955.0, 200.0] for _ in range(25)]
+    rows_5m[-5] = [58955.0, 58980.0, 58940.0, 58975.0, 250.0]
+    rows_5m[-4] = [58975.0, 59195.0, 58970.0, 59180.0, 800.0]
+    rows_5m[-3] = [59180.0, 59210.0, 59060.0, 59170.0, 400.0]
+    rows_5m[-2] = [59170.0, 59175.0, 59050.0, 59070.0, 220.0]
+    rows_5m[-1] = [59070.0, 59150.0, 59020.0, 59140.0, 350.0]
+    df_5m = _make_df(rows_5m, freq="5min")
+
+    setup = evaluate_smc_setup(df_4h_bear, df_15m, df_5m)
+    assert setup is None, "No debe permitir BUY cuando 4H es BEAR"
+    print("OK Operación contratendencia bloqueada correctamente.")
 
 
 if __name__ == "__main__":
-    try:
-        test_smc_strategy_math()
-        test_screener_and_stagnant()
-        print("\n🎉 TODAS LAS PRUEBAS PASARON EXITOSAMENTE.")
-    except Exception as e:
-        print(f"\n❌ ERROR EN LAS PRUEBAS: {e}")
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
+    test_toni_maura_bull_setup()
+    test_wick_only_break_rejected()
+    test_macro_filter_blocks_countertrend()
+    print("\nTODAS LAS PRUEBAS DE ESTRATEGIA TONI MAURA PASARON EXITOSAMENTE.")
