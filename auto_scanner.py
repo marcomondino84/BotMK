@@ -448,7 +448,7 @@ class AutoScanner:
             # Estructura 15m, Barridas de Liquidez y Ruptura por Cuerpo (Toni Maura)
             tol_pct = float(getattr(config, "SMC_TOLERANCE_PCT", 0.08))
             risk_ratio = float(getattr(config, "DEFAULT_RISK_RATIO", 2.0))
-            min_sl_pct = float(getattr(config, "MIN_SL_PCT", 0.8))
+            min_sl_pct = float(getattr(config, "MIN_SL_PCT", 1.3))
             levels = calculate_liquidity_levels(df_15, lookback=12, exclude_recent=8)
             sweeps = detect_liquidity_sweeps(df_15, levels, tolerance_pct=tol_pct, lookback_candles=10)
             brk_15m = detect_body_structure_break(df_15, lookback=6, recent_window=8, min_body_ratio=0.40)
@@ -480,13 +480,13 @@ class AutoScanner:
             checklist["fvg_detected"] = bool(fvg_info is not None)
             checklist["displacement_atr"] = fvg_info["displacement_atr"] if fvg_info else 0.0
 
-            # Gatillo 5m
-            curr_5 = df_5.iloc[-1]
+            # Gatillo 5m (sobre la última vela CERRADA)
+            closed_5 = df_5.iloc[-2]
             is_trigger = False
             if macro_trend == "BULL":
-                is_trigger = bool(float(curr_5["close"]) > float(curr_5["open"]))
+                is_trigger = bool(float(closed_5["close"]) > float(closed_5["open"]))
             elif macro_trend == "BEAR":
-                is_trigger = bool(float(curr_5["close"]) < float(curr_5["open"]))
+                is_trigger = bool(float(closed_5["close"]) < float(closed_5["open"]))
             checklist["trigger_5m"] = bool(is_trigger)
 
             # Evaluar configuración completa con el motor matemático Toni Maura

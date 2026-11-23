@@ -317,7 +317,7 @@ def evaluate_smc_setup(
     df_5m: pd.DataFrame,
     tolerance_pct: float = 0.08,
     risk_ratio: float = 2.0,
-    min_sl_pct: float = 0.8,
+    min_sl_pct: float = 1.3,
     max_sl_pct: float = 3.0,
 ) -> Optional[Dict[str, Any]]:
     """
@@ -349,9 +349,10 @@ def evaluate_smc_setup(
 
     df_5m_ind = compute_indicators(df_5m)
     curr_5 = df_5m_ind.iloc[-1]
-    prev_5 = df_5m_ind.iloc[-2]
+    closed_5 = df_5m_ind.iloc[-2]
+    prev_closed_5 = df_5m_ind.iloc[-3]
     curr_price = float(curr_5["close"])
-    curr_rsi = float(curr_5["rsi"]) if pd.notna(curr_5["rsi"]) else 50.0
+    curr_rsi = float(closed_5["rsi"]) if pd.notna(closed_5["rsi"]) else 50.0
 
     # ================== CASO BUY (LONG) ==================
     # Válido con (Sweep Low + Body Break) O (Continuación: Body Break en 15m/5m) + Displacement + FVG
@@ -364,13 +365,13 @@ def evaluate_smc_setup(
         if not fvg:
             return None
 
-        # El precio debe haber mitigado/tocado la zona FVG (con tolerancia del 0.15%) y cerrar arriba/rechazar
+        # Exigir vela de 5m CERRADA (closed_5) confirmando mitigación y rechazo del FVG
         touch_tol = curr_price * 0.0015
-        price_tapped_fvg = (float(curr_5["low"]) <= fvg["high"] + touch_tol) or (
-            float(prev_5["low"]) <= fvg["high"] + touch_tol
+        price_tapped_fvg = (float(closed_5["low"]) <= fvg["high"] + touch_tol) or (
+            float(prev_closed_5["low"]) <= fvg["high"] + touch_tol
         )
-        not_broken_below = curr_price >= fvg["low"] * 0.998
-        bull_confirm = (float(curr_5["close"]) > float(curr_5["open"])) and (curr_rsi < 72.0)
+        not_broken_below = curr_price >= fvg["low"] * 0.998 and float(closed_5["close"]) >= fvg["low"]
+        bull_confirm = (float(closed_5["close"]) > float(closed_5["open"])) and (curr_rsi < 72.0)
 
         if price_tapped_fvg and not_broken_below and bull_confirm:
             sweep_low_px = float(sweeps["sweep_wick_price"]) if sweeps["sweep_low"] and sweeps["sweep_wick_price"] > 0 else float(fvg["swing_origin"])
@@ -420,11 +421,11 @@ def evaluate_smc_setup(
             return None
 
         touch_tol = curr_price * 0.0015
-        price_tapped_fvg = (float(curr_5["high"]) >= fvg["low"] - touch_tol) or (
-            float(prev_5["high"]) >= fvg["low"] - touch_tol
+        price_tapped_fvg = (float(closed_5["high"]) >= fvg["low"] - touch_tol) or (
+            float(prev_closed_5["high"]) >= fvg["low"] - touch_tol
         )
-        not_broken_above = curr_price <= fvg["high"] * 1.002
-        bear_confirm = (float(curr_5["close"]) < float(curr_5["open"])) and (curr_rsi > 28.0)
+        not_broken_above = curr_price <= fvg["high"] * 1.002 and float(closed_5["close"]) <= fvg["high"]
+        bear_confirm = (float(closed_5["close"]) < float(closed_5["open"])) and (curr_rsi > 28.0)
 
         if price_tapped_fvg and not_broken_above and bear_confirm:
             sweep_high_px = float(sweeps["sweep_wick_price"]) if sweeps["sweep_high"] and sweeps["sweep_wick_price"] > 0 else float(fvg["swing_origin"])

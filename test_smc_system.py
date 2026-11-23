@@ -54,16 +54,18 @@ def test_toni_maura_bull_setup():
         [58950.0 + (15 if idx % 2 == 0 else -15), 58985.0, 58915.0, 58940.0 + (15 if idx % 2 == 0 else -15), 200.0]
         for idx in range(25)
     ]
-    # Vela i-2 (índice -5): high = 58980
-    rows_5m[-5] = [58955.0, 58980.0, 58940.0, 58975.0, 250.0]
-    # Vela i-1 (índice -4): Displacement fuerte alcista (rango = 220 >> ATR, cuerpo sólido)
-    rows_5m[-4] = [58975.0, 59195.0, 58970.0, 59180.0, 800.0]
-    # Vela i (índice -3): low = 59060 > 58980 -> FVG = [58980, 59060]
-    rows_5m[-3] = [59180.0, 59210.0, 59060.0, 59170.0, 400.0]
-    # Vela -2: retroceso parcial sin invalidar 58980
-    rows_5m[-2] = [59170.0, 59175.0, 59050.0, 59070.0, 220.0]
-    # Vela -1 (actual): toca el FVG (low=59020 <= 59060) y rechaza al alza (close > open)
-    rows_5m[-1] = [59070.0, 59150.0, 59020.0, 59140.0, 350.0]
+    # Vela i-2 (índice -6): high = 58980
+    rows_5m[-6] = [58955.0, 58980.0, 58940.0, 58975.0, 250.0]
+    # Vela i-1 (índice -5): Displacement fuerte alcista (rango = 220 >> ATR, cuerpo sólido)
+    rows_5m[-5] = [58975.0, 59195.0, 58970.0, 59180.0, 800.0]
+    # Vela i (índice -4): low = 59060 > 58980 -> FVG = [58980, 59060]
+    rows_5m[-4] = [59180.0, 59210.0, 59060.0, 59170.0, 400.0]
+    # Vela -3: retroceso parcial sin invalidar 58980
+    rows_5m[-3] = [59170.0, 59175.0, 59050.0, 59070.0, 220.0]
+    # Vela -2 (última cerrada): toca el FVG (low=59020 <= 59060) y cierra verde confirmando rechazo
+    rows_5m[-2] = [59070.0, 59150.0, 59020.0, 59140.0, 350.0]
+    # Vela -1 (actual en formación): continúa por encima del FVG
+    rows_5m[-1] = [59140.0, 59170.0, 59120.0, 59160.0, 180.0]
     df_5m = _make_df(rows_5m, freq="5min")
 
     fvg = detect_fvg_with_displacement(df_5m, direction="BULL")

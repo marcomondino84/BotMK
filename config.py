@@ -127,10 +127,10 @@ class Config(BaseSettings):
         description="Porcentaje técnico base de Stop Loss respecto al precio de entrada"
     )
     MIN_SL_PCT: float = Field(
-        default=0.8,
+        default=1.3,
         ge=0.3,
         le=5.0,
-        description="Distancia mínima de Stop Loss para evitar que ruido o comisiones salten el SL de inmediato (default: 0.8%)"
+        description="Distancia mínima de Stop Loss para evitar que ruido o comisiones salten el SL de inmediato (default: 1.3%)"
     )
 
     # Protección Anti-Overtrading / Anti-Revenge (Enfriamiento por activo)
