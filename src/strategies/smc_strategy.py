@@ -354,7 +354,8 @@ def evaluate_smc_setup(
     curr_rsi = float(curr_5["rsi"]) if pd.notna(curr_5["rsi"]) else 50.0
 
     # ================== CASO BUY (LONG) ==================
-    if macro_trend == "BULL" and sweeps["sweep_low"] and not sweeps["sweep_high"]:
+    # Válido con (Sweep Low + Body Break) O (Continuación: Body Break en 15m/5m) + Displacement + FVG
+    if macro_trend == "BULL":
         has_body_break = brk_15m["bull_break"] or brk_5m["bull_break"]
         if not has_body_break:
             return None
@@ -363,8 +364,8 @@ def evaluate_smc_setup(
         if not fvg:
             return None
 
-        # El precio debe haber mitigado/tocado la zona FVG (con tolerancia del 0.12%) y cerrar arriba/rechazar
-        touch_tol = curr_price * 0.0012
+        # El precio debe haber mitigado/tocado la zona FVG (con tolerancia del 0.15%) y cerrar arriba/rechazar
+        touch_tol = curr_price * 0.0015
         price_tapped_fvg = (float(curr_5["low"]) <= fvg["high"] + touch_tol) or (
             float(prev_5["low"]) <= fvg["high"] + touch_tol
         )
@@ -372,7 +373,8 @@ def evaluate_smc_setup(
         bull_confirm = (float(curr_5["close"]) > float(curr_5["open"])) and (curr_rsi < 72.0)
 
         if price_tapped_fvg and not_broken_below and bull_confirm:
-            struct_low = min(float(sweeps["sweep_wick_price"]), float(fvg["swing_origin"]))
+            sweep_low_px = float(sweeps["sweep_wick_price"]) if sweeps["sweep_low"] and sweeps["sweep_wick_price"] > 0 else float(fvg["swing_origin"])
+            struct_low = min(sweep_low_px, float(fvg["swing_origin"]))
             sl_price = round(struct_low * 0.9985, 6)
             sl_dist_pct = ((curr_price - sl_price) / curr_price) * 100.0
 
@@ -391,11 +393,12 @@ def evaluate_smc_setup(
             else:
                 tp_price = round(min_tp_price, 6)
 
+            entry_mode = f"Sweep({sweeps['level_type']})" if sweeps["sweep_low"] else "Cont"
             return {
                 "signal": "BUY",
-                "pattern": f"ToniMaura Sweep({sweeps['level_type']}) + BodyBreak + Disp({fvg['displacement_atr']}xATR) + FVG",
-                "level_type": sweeps["level_type"],
-                "level_price": sweeps["level_price"],
+                "pattern": f"ToniMaura {entry_mode} + BodyBreak + Disp({fvg['displacement_atr']}xATR) + FVG",
+                "level_type": sweeps["level_type"] or "FVG_CONT",
+                "level_price": sweeps["level_price"] or round(fvg["mid"], 6),
                 "macro_trend": "4H BULL (EMA 50)",
                 "fvg_zone": [round(fvg["low"], 6), round(fvg["high"], 6)],
                 "displacement_atr": fvg["displacement_atr"],
@@ -406,7 +409,8 @@ def evaluate_smc_setup(
             }
 
     # ================== CASO SELL (SHORT) ==================
-    if macro_trend == "BEAR" and sweeps["sweep_high"] and not sweeps["sweep_low"]:
+    # Válido con (Sweep High + Body Break) O (Continuación: Body Break en 15m/5m) + Displacement + FVG
+    if macro_trend == "BEAR":
         has_body_break = brk_15m["bear_break"] or brk_5m["bear_break"]
         if not has_body_break:
             return None
@@ -415,7 +419,7 @@ def evaluate_smc_setup(
         if not fvg:
             return None
 
-        touch_tol = curr_price * 0.0012
+        touch_tol = curr_price * 0.0015
         price_tapped_fvg = (float(curr_5["high"]) >= fvg["low"] - touch_tol) or (
             float(prev_5["high"]) >= fvg["low"] - touch_tol
         )
@@ -423,7 +427,8 @@ def evaluate_smc_setup(
         bear_confirm = (float(curr_5["close"]) < float(curr_5["open"])) and (curr_rsi > 28.0)
 
         if price_tapped_fvg and not_broken_above and bear_confirm:
-            struct_high = max(float(sweeps["sweep_wick_price"]), float(fvg["swing_origin"]))
+            sweep_high_px = float(sweeps["sweep_wick_price"]) if sweeps["sweep_high"] and sweeps["sweep_wick_price"] > 0 else float(fvg["swing_origin"])
+            struct_high = max(sweep_high_px, float(fvg["swing_origin"]))
             sl_price = round(struct_high * 1.0015, 6)
             sl_dist_pct = ((sl_price - curr_price) / curr_price) * 100.0
 
@@ -442,11 +447,12 @@ def evaluate_smc_setup(
             else:
                 tp_price = round(min_tp_price, 6)
 
+            entry_mode = f"Sweep({sweeps['level_type']})" if sweeps["sweep_high"] else "Cont"
             return {
                 "signal": "SELL",
-                "pattern": f"ToniMaura Sweep({sweeps['level_type']}) + BodyBreak + Disp({fvg['displacement_atr']}xATR) + FVG",
-                "level_type": sweeps["level_type"],
-                "level_price": sweeps["level_price"],
+                "pattern": f"ToniMaura {entry_mode} + BodyBreak + Disp({fvg['displacement_atr']}xATR) + FVG",
+                "level_type": sweeps["level_type"] or "FVG_CONT",
+                "level_price": sweeps["level_price"] or round(fvg["mid"], 6),
                 "macro_trend": "4H BEAR (EMA 50)",
                 "fvg_zone": [round(fvg["low"], 6), round(fvg["high"], 6)],
                 "displacement_atr": fvg["displacement_atr"],

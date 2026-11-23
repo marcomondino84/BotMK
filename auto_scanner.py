@@ -467,9 +467,9 @@ class AutoScanner:
             checklist["ichoch_bear"] = bear_body_break
 
             is_ich_valid = False
-            if macro_trend == "BULL" and sweep_low:
+            if macro_trend == "BULL":
                 is_ich_valid = bull_body_break
-            elif macro_trend == "BEAR" and sweep_high:
+            elif macro_trend == "BEAR":
                 is_ich_valid = bear_body_break
             checklist["ichoch_passed"] = bool(is_ich_valid)
 
@@ -483,9 +483,9 @@ class AutoScanner:
             # Gatillo 5m
             curr_5 = df_5.iloc[-1]
             is_trigger = False
-            if macro_trend == "BULL" and sweep_low:
+            if macro_trend == "BULL":
                 is_trigger = bool(float(curr_5["close"]) > float(curr_5["open"]))
-            elif macro_trend == "BEAR" and sweep_high:
+            elif macro_trend == "BEAR":
                 is_trigger = bool(float(curr_5["close"]) < float(curr_5["open"]))
             checklist["trigger_5m"] = bool(is_trigger)
 
@@ -501,9 +501,9 @@ class AutoScanner:
                     min_sl_pct=min_sl_pct
                 )
 
-            # Alineación direccional institucional estricta (a favor de 4H)
-            is_buy_candidate = (macro_trend == "BULL") and sweep_low and not sweep_high
-            is_sell_candidate = (macro_trend == "BEAR") and sweep_high and not sweep_low
+            # Alineación direccional institucional (Sweep o Continuación con Body Break)
+            is_buy_candidate = (macro_trend == "BULL") and (sweep_low or bull_body_break)
+            is_sell_candidate = (macro_trend == "BEAR") and (sweep_high or bear_body_break)
 
             # Puntaje real (0 a 5) según pilares Toni Maura
             score = 0
@@ -533,14 +533,10 @@ class AutoScanner:
             elif not adx_passed:
                 checklist["verdict"] = "ADX_LOW"
                 checklist["verdict_desc"] = f"ADX {adx_val} < {adx_threshold} (Mercado lateral)"
-            elif not (is_buy_candidate or is_sell_candidate):
-                checklist["verdict"] = "NO_SWEEP"
-                dir_txt = "mínimos (LONG)" if macro_trend == "BULL" else "máximos (SHORT)"
-                checklist["verdict_desc"] = f"4H {macro_trend}: Esperando barrida de {dir_txt}"
             elif not is_ich_valid:
                 checklist["verdict"] = "WAITING_ICHOCH"
-                sweep_name = "mínimos" if sweep_low else "máximos"
-                checklist["verdict_desc"] = f"Barrió {sweep_name} ({checklist['sweep_level']}). Esperando ruptura con CUERPO"
+                dir_txt = "alcista" if macro_trend == "BULL" else "bajista"
+                checklist["verdict_desc"] = f"4H {macro_trend}: Esperando ruptura con CUERPO {dir_txt}"
             elif fvg_info is None:
                 checklist["verdict"] = "WAITING_FVG"
                 checklist["verdict_desc"] = "Ruptura confirmada. Esperando Displacement + FVG limpio en 5m"
