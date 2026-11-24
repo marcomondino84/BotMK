@@ -1893,93 +1893,88 @@
                 </template>
 
                 <template x-for="item in filteredScannerResults" :key="item.symbol">
-                    <div class="p-3 rounded-xl bg-slate-950/60 border border-slate-800/80 hover:border-slate-700 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                        <!-- Izquierda: Activo y Precio -->
-                        <div class="flex items-center space-x-3 min-w-[170px]">
-                            <div class="w-2.5 h-2.5 rounded-full shrink-0"
-                                 :class="item.score >= 4 ? 'bg-emerald-400 animate-pulse' : (item.score >= 2 ? 'bg-amber-400' : 'bg-slate-600')"></div>
-                            <div>
-                                <div class="flex items-center space-x-1.5 flex-wrap">
-                                    <span class="text-xs font-bold text-white font-mono" x-text="item.symbol"></span>
-                                    <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold"
-                                          :class="item.score === 5 ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' : (item.score >= 3 ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' : 'bg-slate-800 text-slate-400')"
-                                          x-text="item.score + '/5 Checks'"></span>
-                                    <template x-if="item.in_cooldown">
-                                        <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40"
-                                              x-text="'⏳ ' + item.cooldown_min + 'm'"></span>
-                                    </template>
-                                    <template x-if="item.benchmark_blocked">
-                                        <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-rose-500/20 text-rose-300 border border-rose-500/40"
-                                              :title="item.benchmark_reason"
-                                              x-text="'🛡️ Veto Centinela'"></span>
-                                    </template>
-                                    <template x-if="item.verdict === 'HYPER_VOLATILE'">
-                                        <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-rose-500/20 text-rose-300 border border-rose-500/40"
-                                              x-text="'🚫 Hiper-volátil'"></span>
-                                    </template>
-                                    <template x-if="item.verdict === 'STAGNANT'">
-                                        <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-slate-800 text-slate-400 border border-slate-700"
-                                              x-text="'🚫 Estancado'"></span>
-                                    </template>
-                                    <template x-if="item.verdict === 'NEW_TOKEN'">
-                                        <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-purple-500/20 text-purple-300 border border-purple-500/40"
-                                              x-text="'🚫 Recién listado'"></span>
-                                    </template>
-                                </div>
-                                <div class="text-[10px] text-slate-400 font-mono mt-0.5">
-                                    Precio: $<span class="text-slate-200" x-text="item.price"></span>
-                                </div>
+                    <div class="p-3.5 rounded-xl bg-slate-950/60 border border-slate-800/80 hover:border-slate-700 transition-all flex flex-col gap-2.5">
+                        <!-- Fila Superior: Activo + Precio a la izquierda, Diagnóstico a la derecha -->
+                        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                            <div class="flex items-center space-x-2.5">
+                                <div class="w-2.5 h-2.5 rounded-full shrink-0"
+                                     :class="item.score >= 4 ? 'bg-emerald-400 animate-pulse' : (item.score >= 2 ? 'bg-amber-400' : 'bg-slate-600')"></div>
+                                <span class="text-xs font-bold text-white font-mono" x-text="item.symbol"></span>
+                                <span class="text-[11px] text-slate-400 font-mono">$<span class="text-slate-200" x-text="item.price"></span></span>
+                                <span class="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold"
+                                      :class="item.score === 5 ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' : (item.score >= 3 ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' : 'bg-slate-800 text-slate-400')"
+                                      x-text="item.score + '/5'"></span>
+                                <template x-if="item.in_cooldown">
+                                    <span class="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40"
+                                          x-text="'⏳ ' + item.cooldown_min + 'm'"></span>
+                                </template>
+                                <template x-if="item.benchmark_blocked">
+                                    <span class="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-rose-500/20 text-rose-300 border border-rose-500/40"
+                                          :title="item.benchmark_reason"
+                                          x-text="'🛡️ Veto'"></span>
+                                </template>
+                                <template x-if="item.verdict === 'HYPER_VOLATILE'">
+                                    <span class="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-rose-500/20 text-rose-300 border border-rose-500/40"
+                                          x-text="'🚫 Hiper-volátil'"></span>
+                                </template>
+                                <template x-if="item.verdict === 'STAGNANT'">
+                                    <span class="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-800 text-slate-400 border border-slate-700"
+                                          x-text="'🚫 Estancado'"></span>
+                                </template>
+                                <template x-if="item.verdict === 'NEW_TOKEN'">
+                                    <span class="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-purple-500/20 text-purple-300 border border-purple-500/40"
+                                          x-text="'🚫 Nuevo'"></span>
+                                </template>
+                            </div>
+
+                            <div class="sm:text-right font-mono">
+                                <span class="text-[11px] font-bold"
+                                      :class="item.verdict === 'CONFIRMED' ? 'text-emerald-400' : (item.verdict === 'BENCHMARK_BLOCKED' ? 'text-rose-400' : (item.score >= 3 ? 'text-amber-400' : 'text-slate-400'))"
+                                      x-text="item.verdict_desc"></span>
                             </div>
                         </div>
 
-                        <!-- Centro: Badges de las 5 Condiciones -->
-                        <div class="grid grid-cols-2 sm:grid-cols-5 gap-1.5 flex-1 font-mono text-[10px]">
+                        <!-- Fila Inferior: 5 Cuadros alineados al 100% -->
+                        <div class="grid grid-cols-2 sm:grid-cols-5 gap-2 w-full font-mono text-[10px]">
                             <!-- 1. Macro 4H -->
-                            <div class="p-1.5 rounded bg-slate-900 border border-slate-800 flex flex-col justify-center">
-                                <span class="text-[9px] text-slate-500">1. Macro 4H</span>
-                                <span class="font-bold font-mono"
+                            <div class="px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-800 flex items-center justify-between">
+                                <span class="text-[9px] text-slate-400">1. Macro 4H</span>
+                                <span class="font-bold"
                                       :class="item.macro_trend === 'BULL' ? 'text-emerald-400' : (item.macro_trend === 'BEAR' ? 'text-rose-400' : 'text-slate-500')"
                                       x-text="item.macro_trend === 'BULL' ? '🟢 BULL' : (item.macro_trend === 'BEAR' ? '🔴 BEAR' : '⚪ Neutro')"></span>
                             </div>
 
                             <!-- 2. ADX 15m -->
-                            <div class="p-1.5 rounded bg-slate-900 border border-slate-800 flex flex-col justify-center">
-                                <span class="text-[9px] text-slate-500">2. ADX 15m</span>
-                                <span class="font-bold font-mono"
+                            <div class="px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-800 flex items-center justify-between">
+                                <span class="text-[9px] text-slate-400">2. ADX 15m</span>
+                                <span class="font-bold"
                                       :class="item.adx_passed ? 'text-emerald-400' : 'text-rose-400'"
                                       x-text="item.adx_val + (item.adx_passed ? ' ✅' : ' ❌')"></span>
                             </div>
 
                             <!-- 3. Barrida 15m -->
-                            <div class="p-1.5 rounded bg-slate-900 border border-slate-800 flex flex-col justify-center">
-                                <span class="text-[9px] text-slate-500">3. Barrida</span>
-                                <span class="font-bold font-mono truncate"
+                            <div class="px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-800 flex items-center justify-between">
+                                <span class="text-[9px] text-slate-400">3. Barrida</span>
+                                <span class="font-bold"
                                       :class="(item.sweep_low || item.sweep_high) ? 'text-emerald-400' : 'text-slate-500'"
-                                      x-text="item.sweep_low ? 'Sweep Low ✅' : (item.sweep_high ? 'Sweep High ✅' : 'Sin barrida ⚪')"></span>
+                                      x-text="item.sweep_low ? 'Low ✅' : (item.sweep_high ? 'High ✅' : '—')"></span>
                             </div>
 
-                            <!-- 4. iCHoCH 15m -->
-                            <div class="p-1.5 rounded bg-slate-900 border border-slate-800 flex flex-col justify-center">
-                                <span class="text-[9px] text-slate-500">4. iCHoCH</span>
-                                <span class="font-bold font-mono truncate"
+                            <!-- 4. Ruptura con Cuerpo -->
+                            <div class="px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-800 flex items-center justify-between">
+                                <span class="text-[9px] text-slate-400">4. Cuerpo</span>
+                                <span class="font-bold"
                                       :class="item.ichoch_passed ? 'text-emerald-400' : 'text-slate-500'"
-                                      x-text="item.ichoch_passed ? 'Quiebre ✅' : 'Esperando ⚪'"></span>
+                                      x-text="item.ichoch_passed ? 'Roto ✅' : 'Esperando'"></span>
                             </div>
 
-                            <!-- 5. Gatillo 5m -->
-                            <div class="p-1.5 rounded bg-slate-900 border border-slate-800 flex flex-col justify-center">
-                                <span class="text-[9px] text-slate-500">5. Gatillo 5m</span>
-                                <span class="font-bold font-mono truncate"
-                                      :class="item.trigger_5m ? 'text-emerald-400' : 'text-slate-500'"
-                                      x-text="item.trigger_5m ? 'Confirmado ✅' : 'Esperando ⚪'"></span>
+                            <!-- 5. FVG + Gatillo 5m -->
+                            <div class="px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-800 flex items-center justify-between col-span-2 sm:col-span-1">
+                                <span class="text-[9px] text-slate-400">5. FVG / 5m</span>
+                                <span class="font-bold"
+                                      :class="(item.fvg_detected && item.trigger_5m) ? 'text-emerald-400' : (item.fvg_detected ? 'text-amber-300' : 'text-slate-500')"
+                                      x-text="(item.fvg_detected && item.trigger_5m) ? 'Listo ✅' : (item.fvg_detected ? 'FVG (' + item.displacement_atr + 'x)' : 'Sin FVG')"></span>
                             </div>
-                        </div>
-
-                        <!-- Derecha: Diagnóstico / Estado -->
-                        <div class="sm:text-right min-w-[190px] font-mono">
-                            <span class="text-[11px] font-bold block"
-                                  :class="item.verdict === 'CONFIRMED' ? 'text-emerald-400' : (item.verdict === 'BENCHMARK_BLOCKED' ? 'text-rose-400' : (item.score >= 3 ? 'text-amber-400' : 'text-slate-400'))"
-                                  x-text="item.verdict_desc"></span>
                         </div>
                     </div>
                 </template>
