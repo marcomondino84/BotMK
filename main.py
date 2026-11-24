@@ -10,8 +10,8 @@ import os
 from contextlib import asynccontextmanager
 from typing import List, Dict, Any, Optional
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Response
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Response, Request
+from fastapi.responses import FileResponse, RedirectResponse, JSONResponse
 from pydantic import BaseModel, Field
 import uvicorn
 
@@ -23,7 +23,11 @@ from database import (
     get_performance_stats,
     get_recent_trades,
     get_recent_logs,
-    add_system_log
+    add_system_log,
+    verify_user_credentials,
+    create_session_token,
+    verify_session_token,
+    change_user_password,
 )
 from bingx_client import BingXFuturesClient
 from auto_scanner import AutoScanner
@@ -136,11 +140,35 @@ app = FastAPI(
 )
 
 
+SESSION_COOKIE_NAME = "botmk_session"
+PUBLIC_PATHS = {"/login", "/api/auth/login", "/api/auth/logout", "/health", "/favicon.ico", "/webhook/signal"}
+
+
 @app.middleware("http")
-async def add_ngrok_header(request, call_next):
+async def auth_and_headers_middleware(request: Request, call_next):
+    path = request.url.path
+    if path not in PUBLIC_PATHS:
+        token = request.cookies.get(SESSION_COOKIE_NAME, "")
+        user_email = verify_session_token(token)
+        if not user_email:
+            if path.startswith("/api/"):
+                return JSONResponse({"detail": "No autenticado"}, status_code=401)
+            return RedirectResponse(url="/login", status_code=302)
+        request.state.user_email = user_email
+
     response = await call_next(request)
     response.headers["ngrok-skip-browser-warning"] = "true"
     return response
+
+
+class LoginPayload(BaseModel):
+    email: str
+    password: str
+
+
+class ChangePasswordPayload(BaseModel):
+    current_password: str
+    new_password: str
 
 
 class SignalPayload(BaseModel):
@@ -231,6 +259,64 @@ def update_env_file(updates: Dict[str, Any]):
         f.writelines(new_lines)
 
 
+@app.get("/login")
+async def serve_login(request: Request):
+    token = request.cookies.get(SESSION_COOKIE_NAME, "")
+    if verify_session_token(token):
+        return RedirectResponse(url="/", status_code=302)
+    return FileResponse("templates/login.html")
+
+
+@app.post("/api/auth/login")
+async def login(payload: LoginPayload, response: Response):
+    email = verify_user_credentials(payload.email, payload.password)
+    if not email:
+        raise HTTPException(status_code=401, detail="Correo o contraseña incorrectos.")
+    token = create_session_token(email)
+    response.set_cookie(
+        key=SESSION_COOKIE_NAME,
+        value=token,
+        httponly=True,
+        samesite="lax",
+        max_age=7 * 86400,
+        path="/"
+    )
+    add_system_log("INFO", f"🔐 Inicio de sesión exitoso ({email}).")
+    return {"status": "success", "email": email}
+
+
+@app.post("/api/auth/logout")
+async def logout(response: Response):
+    response.delete_cookie(key=SESSION_COOKIE_NAME, path="/")
+    return {"status": "success"}
+
+
+@app.get("/api/auth/me")
+async def auth_me(request: Request):
+    return {"email": getattr(request.state, "user_email", "")}
+
+
+@app.post("/api/auth/change-password")
+async def auth_change_password(payload: ChangePasswordPayload, request: Request, response: Response):
+    email = getattr(request.state, "user_email", "")
+    ok, msg = change_user_password(email, payload.current_password, payload.new_password)
+    if not ok:
+        raise HTTPException(status_code=400, detail=msg)
+    # Emitir nuevo token para la sesión actual tras cambiar la contraseña
+    new_token = create_session_token(email)
+    if new_token:
+        response.set_cookie(
+            key=SESSION_COOKIE_NAME,
+            value=new_token,
+            httponly=True,
+            samesite="lax",
+            max_age=7 * 86400,
+            path="/"
+        )
+    add_system_log("INFO", f"🔑 Contraseña de usuario actualizada ({email}).")
+    return {"status": "success", "message": msg}
+
+
 @app.get("/", response_class=FileResponse)
 async def serve_dashboard():
     return FileResponse("templates/index.html")
@@ -244,6 +330,10 @@ async def favicon_ico():
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
+    token = websocket.cookies.get(SESSION_COOKIE_NAME, "")
+    if not verify_session_token(token):
+        await websocket.close(code=1008)
+        return
     await ws_manager.connect(websocket)
     try:
         logs = get_recent_logs(limit=25)

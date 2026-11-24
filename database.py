@@ -3,9 +3,14 @@ Persistencia con SQLite y SQLAlchemy.
 Gestiona el estado del bot, registro de trades, logs del sistema y estadísticas del Circuit Breaker.
 """
 
+import base64
+import hashlib
+import hmac
+import secrets
+import time
 from datetime import datetime, date
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 
 from sqlalchemy import (
     create_engine,
@@ -93,8 +98,37 @@ class WatchlistRecord(Base):
     added_at = Column(DateTime, default=datetime.now)
 
 
+class UserRecord(Base):
+    """Usuario autorizado para acceder al panel web de BotMK."""
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String(128), unique=True, nullable=False, index=True)
+    password_hash = Column(String(256), nullable=False)
+    session_secret = Column(String(128), nullable=False)
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+
+def _hash_password(password: str, salt_hex: Optional[str] = None) -> str:
+    """Genera hash PBKDF2-HMAC-SHA256 con salt único por usuario."""
+    salt = bytes.fromhex(salt_hex) if salt_hex else secrets.token_bytes(16)
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 120_000)
+    return f"{salt.hex()}${dk.hex()}"
+
+
+def _verify_password(password: str, stored_hash: str) -> bool:
+    """Verifica una contraseña contra su hash PBKDF2 almacenado."""
+    try:
+        salt_hex, dk_hex = stored_hash.split("$", 1)
+        expected = _hash_password(password, salt_hex)
+        return hmac.compare_digest(expected, stored_hash)
+    except Exception:
+        return False
+
+
 def init_db():
-    """Crea todas las tablas si no existen e inicializa el estado y la watchlist."""
+    """Crea todas las tablas si no existen e inicializa el estado, usuario y watchlist."""
     Base.metadata.create_all(bind=engine)
     with SessionLocal() as session:
         state = session.query(BotStateRecord).filter_by(id=1).first()
@@ -107,6 +141,15 @@ def init_db():
                 circuit_breaker_reason=""
             )
             session.add(state)
+            session.commit()
+
+        # Crear usuario inicial si no existe ninguno
+        if session.query(UserRecord).count() == 0:
+            session.add(UserRecord(
+                email="marcomondino84@gmail.com",
+                password_hash=_hash_password("Bot30865636..**"),
+                session_secret=secrets.token_hex(32)
+            ))
             session.commit()
 
         # Poblar watchlist inicial si está vacía
@@ -122,6 +165,74 @@ def init_db():
                     target_sl=data.get("target_sl", 1.5)
                 ))
             session.commit()
+
+
+def verify_user_credentials(email: str, password: str) -> Optional[str]:
+    """Valida email y contraseña. Retorna el email normalizado si es válido, o None."""
+    norm_email = (email or "").strip().lower()
+    with SessionLocal() as session:
+        user = session.query(UserRecord).filter_by(email=norm_email).first()
+        if user and _verify_password(password or "", user.password_hash):
+            return user.email
+    return None
+
+
+def create_session_token(email: str, ttl_seconds: int = 7 * 86400) -> Optional[str]:
+    """Crea un token de sesión firmado con HMAC-SHA256 ligado al hash de contraseña actual."""
+    norm_email = (email or "").strip().lower()
+    with SessionLocal() as session:
+        user = session.query(UserRecord).filter_by(email=norm_email).first()
+        if not user:
+            return None
+        exp = int(time.time()) + ttl_seconds
+        pw_ver = user.password_hash[-12:]
+        payload = f"{user.email}|{exp}|{pw_ver}"
+        sig = hmac.new(user.session_secret.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
+        raw = f"{payload}|{sig}".encode("utf-8")
+        return base64.urlsafe_b64encode(raw).decode("ascii")
+
+
+def verify_session_token(token: str) -> Optional[str]:
+    """Verifica firma, expiración y versión de contraseña del token de sesión."""
+    if not token:
+        return None
+    try:
+        decoded = base64.urlsafe_b64decode(token.encode("ascii")).decode("utf-8")
+        email, exp_str, pw_ver, sig = decoded.split("|", 3)
+        if int(exp_str) < int(time.time()):
+            return None
+        with SessionLocal() as session:
+            user = session.query(UserRecord).filter_by(email=email).first()
+            if not user:
+                return None
+            if not hmac.compare_digest(pw_ver, user.password_hash[-12:]):
+                return None
+            payload = f"{email}|{exp_str}|{pw_ver}"
+            expected_sig = hmac.new(
+                user.session_secret.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256
+            ).hexdigest()
+            if hmac.compare_digest(sig, expected_sig):
+                return user.email
+    except Exception:
+        return None
+    return None
+
+
+def change_user_password(email: str, current_password: str, new_password: str) -> Tuple[bool, str]:
+    """Cambia la contraseña del usuario verificando la actual."""
+    if not new_password or len(new_password) < 6:
+        return False, "La nueva contraseña debe tener al menos 6 caracteres."
+    norm_email = (email or "").strip().lower()
+    with SessionLocal() as session:
+        user = session.query(UserRecord).filter_by(email=norm_email).first()
+        if not user:
+            return False, "Usuario no encontrado."
+        if not _verify_password(current_password or "", user.password_hash):
+            return False, "La contraseña actual es incorrecta."
+        user.password_hash = _hash_password(new_password)
+        user.updated_at = datetime.now()
+        session.commit()
+        return True, "Contraseña actualizada correctamente."
 
 
 def get_db_session() -> Session:
