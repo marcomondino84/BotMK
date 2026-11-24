@@ -163,7 +163,7 @@
         </div>
     </header>
 
-    <main class="max-w-6xl mx-auto px-4 pt-4 space-y-4">
+    <main class="max-w-6xl mx-auto px-4 pt-2 space-y-3">
 
         <!-- Banner Alerta de Circuit Breaker -->
         <template x-if="circuitBreakerTriggered">
@@ -182,6 +182,8 @@
             </div>
         </template>
 
+        <!-- Panel Fijo: Centinela Maestro + Tarjetas KPI -->
+        <div class="lg:sticky lg:top-[57px] z-40 bg-brand-dark/95 backdrop-blur-md -mx-4 px-4 pt-1.5 pb-3 space-y-2.5 border-b border-brand-border/60">
         <!-- Barra Centinela Maestro de Régimen de Mercado (BTC & S&P 500) -->
         <div class="px-4 py-2.5 rounded-xl glass-panel border border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shadow-md">
             <div class="flex items-center space-x-2">
@@ -339,7 +341,7 @@
                 </div>
             </div>
         </div>
-
+        </div>
 
         <!-- 1. POSICIONES EN VIVO -->
         <section class="glass-panel rounded-xl p-4">
