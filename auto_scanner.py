@@ -180,7 +180,7 @@ class AutoScanner:
             if self.scan_mode == "top_volatility":
                 min_vol = float(getattr(config, "MIN_24H_VOLUME_USDT", 3000000.0))
                 volatile_pairs = await asyncio.to_thread(
-                    self.client.get_market_symbols_by_volatility, 25, min_vol
+                    self.client.get_market_symbols_by_volatility, 40, min_vol
                 )
                 for vp in volatile_pairs:
                     targets.append({
@@ -202,7 +202,7 @@ class AutoScanner:
                         "name": item["name"]
                     })
             else:
-                market_pairs = await asyncio.to_thread(self.client.get_market_symbols_by_volume, 25)
+                market_pairs = await asyncio.to_thread(self.client.get_market_symbols_by_volume, 40)
                 for mp in market_pairs:
                     targets.append({
                         "raw_symbol": mp["ticker"],

@@ -694,21 +694,38 @@ class BingXFuturesClient:
                         pnl_usd = 0.0
                         matched_income = False
 
-                        # 1. Intentar obtener PnL realizado exacto desde BingX UserIncome
-                        bingx_sym = clean_db_sym.replace("/", "-")
+                        # 1. Intentar obtener PnL neto real (REALIZED_PNL + TRADING_FEE + FUNDING_FEE) desde BingX UserIncome
+                        resolved = None
+                        try:
+                            resolved = self.resolve_symbol(t.symbol)
+                            ex_sym_clean = resolved["exchange_symbol"].split(":")[0].replace("/", "-").upper()
+                        except Exception:
+                            ex_sym_clean = clean_db_sym.replace("/", "-")
+
+                        opened_ms = int((t.opened_at.timestamp() - 15) * 1000) if t.opened_at else 0
+                        net_income = 0.0
+                        has_realized = False
                         for inc in recent_income:
-                            if inc.get("incomeType") == "REALIZED_PNL" and (
-                                inc.get("symbol") == bingx_sym or
-                                base in inc.get("symbol", "")
-                            ):
-                                pnl_usd = float(inc.get("income") or 0.0)
-                                matched_income = True
-                                break
+                            inc_sym = str(inc.get("symbol", "")).upper()
+                            inc_time = int(inc.get("time") or 0)
+                            inc_type = str(inc.get("incomeType", ""))
+                            if inc_time < opened_ms:
+                                continue
+                            if inc_sym == ex_sym_clean or inc_sym.startswith(f"{base}-"):
+                                if inc_type in ("REALIZED_PNL", "TRADING_FEE", "FUNDING_FEE"):
+                                    net_income += float(inc.get("income") or 0.0)
+                                    if inc_type == "REALIZED_PNL":
+                                        has_realized = True
+
+                        if has_realized:
+                            pnl_usd = net_income
+                            matched_income = True
 
                         # 2. Si no se encontró en UserIncome, consultar trades recientes de la moneda
                         if not matched_income:
                             try:
-                                resolved = self.resolve_symbol(t.symbol)
+                                if not resolved:
+                                    resolved = self.resolve_symbol(t.symbol)
                                 ex_sym = resolved["exchange_symbol"]
                                 my_trades = self.exchange.fetch_my_trades(ex_sym, limit=5)
                                 if my_trades:
