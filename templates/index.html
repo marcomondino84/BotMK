@@ -310,35 +310,26 @@
                 </div>
             </div>
 
-            <!-- Notificaciones Telegram y Estrategia -->
-            <div class="p-3.5 rounded-xl glass-panel col-span-2 sm:col-span-1">
-                <div class="flex items-center justify-between">
-                    <div class="text-[11px] font-medium text-slate-400 uppercase tracking-wider">Telegram & MTF</div>
-                    <div class="flex items-center space-x-1.5">
-                        <!-- Switch Silenciar / Activar Telegram -->
-                        <button @click="toggleTelegram()"
-                                class="text-[9px] px-1.5 py-0.5 rounded font-mono font-bold transition-all flex items-center space-x-1 shadow-sm"
-                                :class="telegramEnabled ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30' : 'bg-slate-800 text-slate-500 border border-slate-700 hover:bg-slate-700'"
-                                :title="telegramEnabled ? 'Clic para silenciar alertas de Telegram' : 'Clic para activar alertas de Telegram'">
-                            <span x-text="telegramEnabled ? '🔔 ON' : '🔕 MUDO'"></span>
-                        </button>
-                        <button @click="testTelegram()"
-                                class="text-[9px] px-1.5 py-0.5 rounded bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 border border-sky-500/30 transition-colors"
-                                title="Enviar alerta de prueba a tu chat">
-                            Test
-                        </button>
+            <!-- Gráfico en Vivo BTC Futuros BingX (Clic para ampliar) -->
+            <div @click="openBtcChartModal()"
+                 class="p-2.5 rounded-xl glass-panel col-span-2 sm:col-span-1 cursor-pointer hover:border-amber-500/40 transition-all group flex flex-col justify-between"
+                 title="Clic para ampliar gráfico en vivo de BTC Futuros">
+                <div class="flex items-center justify-between gap-1">
+                    <div class="flex items-center space-x-1.5 min-w-0">
+                        <span class="text-[11px] font-bold text-amber-400 font-mono truncate">₿ BTC</span>
+                        <span class="text-[10px] font-mono font-bold text-white"
+                              x-text="'$' + formatNumber(btcChartPrice || benchmarks.btc?.price || 0)"></span>
+                    </div>
+                    <div class="flex items-center space-x-0.5 shrink-0" @click.stop>
+                        <template x-for="tf in ['1m', '5m', '15m', '1h', '4h']" :key="tf">
+                            <button @click="setBtcTimeframe(tf)"
+                                    :class="btcChartTimeframe === tf ? 'bg-amber-500/25 text-amber-300 border-amber-500/50 font-bold' : 'text-slate-400 hover:text-slate-200 border-transparent'"
+                                    class="px-1 py-0.5 text-[9px] font-mono rounded border transition-colors"
+                                    x-text="tf"></button>
+                        </template>
                     </div>
                 </div>
-                <div class="text-xs font-bold font-mono mt-1 flex items-center space-x-1.5"
-                     :class="telegramEnabled ? 'text-emerald-400' : 'text-slate-500'">
-                    <span>✈️</span>
-                    <span x-text="telegramConfigured ? '@botmkbingx_bot' : 'Falta Chat ID'"></span>
-                    <span class="text-[9px] font-normal" :class="telegramEnabled ? 'text-emerald-500/80' : 'text-slate-500'" x-text="telegramEnabled ? '' : '(Silenciado)'"></span>
-                </div>
-                <div class="text-[10px] text-slate-400 mt-0.5 font-mono flex items-center justify-between">
-                    <span>15m + 5m Gatillo</span>
-                    <button @click="openSettingsModal('telegram')" class="text-sky-400 hover:underline text-[9px]">Configurar ⚙️</button>
-                </div>
+                <div id="btc-mini-chart" class="w-full h-[64px] mt-1.5 rounded overflow-hidden pointer-events-none"></div>
             </div>
         </div>
         </div>
@@ -887,6 +878,42 @@
             </div>
         </section>
     </main>
+
+    <!-- MODAL POPUP GRÁFICO EN VIVO BTC FUTUROS BINGX -->
+    <div x-show="showBtcChartModal"
+         x-transition.opacity
+         class="fixed inset-0 z-50 overflow-y-auto bg-black/85 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4"
+         @keydown.escape.window="closeBtcChartModal()"
+         x-cloak>
+        <div class="bg-[#0b0e17] border border-slate-800 rounded-2xl w-full max-w-4xl shadow-2xl overflow-hidden flex flex-col"
+             @click.away="closeBtcChartModal()">
+            <div class="px-4 py-3 border-b border-slate-800/80 flex flex-wrap items-center justify-between gap-2 bg-slate-900/60">
+                <div class="flex items-center space-x-2.5">
+                    <span class="text-sm font-bold text-amber-400 font-mono">₿ BTC/USDT:USDT</span>
+                    <span class="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-mono">BingX Futuros</span>
+                    <span class="text-sm font-bold text-white font-mono"
+                          x-text="'$' + formatNumber(btcChartPrice || benchmarks.btc?.price || 0)"></span>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <div class="flex items-center bg-slate-950 border border-slate-800 rounded-lg p-0.5">
+                        <template x-for="tf in ['1m', '5m', '15m', '1h', '4h']" :key="'modal-' + tf">
+                            <button @click="setBtcTimeframe(tf)"
+                                    :class="btcChartTimeframe === tf ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 font-bold' : 'text-slate-400 hover:text-slate-200 border-transparent'"
+                                    class="px-2 py-0.5 text-[11px] font-mono rounded border transition-colors"
+                                    x-text="tf"></button>
+                        </template>
+                    </div>
+                    <button @click="closeBtcChartModal()"
+                            class="text-slate-400 hover:text-white px-2 py-1 rounded-lg hover:bg-slate-800 transition-colors font-mono text-sm">
+                        ✕
+                    </button>
+                </div>
+            </div>
+            <div class="p-3 bg-[#05070d]">
+                <div id="btc-modal-chart" class="w-full h-[360px] sm:h-[460px] rounded-lg overflow-hidden"></div>
+            </div>
+        </div>
+    </div>
 
     <!-- MODAL FINTECH: CONFIGURACIÓN INTEGRAL DEL BOT -->
     <div x-show="showSettingsModal"
@@ -2036,6 +2063,10 @@
                 showSettingsModal: false,
                 showStatsModal: false,
                 showScannerModal: false,
+                showBtcChartModal: false,
+                btcChartTimeframe: '5m',
+                btcChartPrice: 0,
+                _btcCharts: {},
                 scannerFilter: 'all',
                 isScanningManual: false,
                 scannerChecklist: {
@@ -2120,6 +2151,7 @@
                     this.loadRecentLogs();
                     this.fetchScannerChecklist();
                     this.connectWebSocket();
+                    this.$nextTick(() => this.loadBtcChart(true));
 
                     setInterval(() => {
                         this.refreshData();
@@ -2128,8 +2160,9 @@
                         this.fetchScannerChecklist();
                     }, 4000);
 
-                    // Refrescar velas periódicamente SOLO para los gráficos que el usuario tenga abiertos
+                    // Refrescar velas periódicamente para el gráfico de BTC y los gráficos abiertos
                     setInterval(() => {
+                        this.loadBtcChart(false);
                         for (const pos of (this.positions || [])) {
                             if (this.activeCharts[pos.symbol]) {
                                 this.initOrUpdateChart(pos, false);
@@ -2241,6 +2274,112 @@
                 async changeChartTimeframe(pos, tf) {
                     this.chartTimeframes[pos.symbol] = tf;
                     await this.initOrUpdateChart(pos, true);
+                },
+
+                openBtcChartModal() {
+                    this.showBtcChartModal = true;
+                    this.$nextTick(() => this._renderBtcChart('btc-modal-chart', 'modal', 440, 80, true));
+                },
+
+                closeBtcChartModal() {
+                    this.showBtcChartModal = false;
+                },
+
+                setBtcTimeframe(tf) {
+                    this.btcChartTimeframe = tf;
+                    this.loadBtcChart(true);
+                },
+
+                async loadBtcChart(forceReload = false) {
+                    await this._renderBtcChart('btc-mini-chart', 'mini', 64, 45, forceReload, true);
+                    if (this.showBtcChartModal) {
+                        await this._renderBtcChart('btc-modal-chart', 'modal', 440, 80, forceReload, false);
+                    }
+                },
+
+                async _renderBtcChart(containerId, key, height, limit, forceReload = false, isMini = false) {
+                    const container = document.getElementById(containerId);
+                    if (!container || typeof LightweightCharts === 'undefined') return;
+
+                    try {
+                        const res = await fetch(`/api/candles/${encodeURIComponent('BTC/USDT:USDT')}?timeframe=${this.btcChartTimeframe}&limit=${limit}`);
+                        if (!res.ok) return;
+                        const data = await res.json();
+                        const candles = data.candles || [];
+                        if (candles.length === 0) return;
+
+                        this.btcChartPrice = Number(candles[candles.length - 1].close || 0);
+                        let entry = this._btcCharts[key];
+
+                        if (!entry || !container.hasChildNodes() || forceReload) {
+                            if (entry && entry.ro) entry.ro.disconnect();
+                            container.innerHTML = '';
+
+                            const chart = LightweightCharts.createChart(container, {
+                                width: container.clientWidth || (isMini ? 180 : 720),
+                                height: container.clientHeight || height,
+                                layout: {
+                                    background: { type: 'solid', color: isMini ? 'transparent' : '#05070d' },
+                                    textColor: '#94a3b8',
+                                    fontSize: isMini ? 9 : 11,
+                                    fontFamily: 'JetBrains Mono, monospace',
+                                },
+                                grid: {
+                                    vertLines: { visible: !isMini, color: 'rgba(30, 41, 59, 0.35)' },
+                                    horzLines: { visible: !isMini, color: 'rgba(30, 41, 59, 0.35)' },
+                                },
+                                crosshair: {
+                                    mode: isMini ? LightweightCharts.CrosshairMode.Hidden : LightweightCharts.CrosshairMode.Normal,
+                                },
+                                rightPriceScale: {
+                                    visible: !isMini,
+                                    borderColor: '#1e293b',
+                                    scaleMargins: { top: 0.12, bottom: 0.12 },
+                                },
+                                timeScale: {
+                                    visible: !isMini,
+                                    borderColor: '#1e293b',
+                                    timeVisible: true,
+                                    secondsVisible: false,
+                                    barSpacing: isMini ? 4 : 7,
+                                    rightOffset: isMini ? 2 : 12,
+                                },
+                                handleScroll: !isMini,
+                                handleScale: !isMini,
+                            });
+
+                            const candleSeries = chart.addCandlestickSeries({
+                                upColor: '#10b981',
+                                downColor: '#f43f5e',
+                                borderVisible: false,
+                                wickUpColor: '#10b981',
+                                wickDownColor: '#f43f5e',
+                            });
+
+                            const ro = new ResizeObserver(entries => {
+                                for (const item of entries) {
+                                    if (item.contentRect.width > 0) {
+                                        chart.applyOptions({
+                                            width: item.contentRect.width,
+                                            height: item.contentRect.height || height,
+                                        });
+                                    }
+                                }
+                            });
+                            ro.observe(container);
+
+                            entry = { chart, candleSeries, ro, hasPositioned: false };
+                            this._btcCharts[key] = entry;
+                        }
+
+                        entry.candleSeries.setData(candles);
+                        if (!entry.hasPositioned || forceReload) {
+                            entry.chart.timeScale().fitContent();
+                            entry.hasPositioned = true;
+                        }
+                    } catch (e) {
+                        console.error('Error cargando gráfico BTC:', e);
+                    }
                 },
 
                 async refreshChartCandles(pos) {
